@@ -21,9 +21,13 @@ export class SupportedFormats {
     // From the pair matrix rather than spelled out in a text: otherwise what is promised to a person
     // drifts from what the domain can actually do.
     public toText(): string {
-        return this.sort(this.convertorFactory.getSupportedExtensions())
-            .map((extension) => extension.toUpperCase())
-            .join(", ");
+        return this.toUpperCaseText(this.convertorFactory.getSupportedExtensions());
+    }
+
+    // The formats a file is taken in, for a text that asks for a file or refuses one: a text listing
+    // a format that is only a target would name the very format it refuses.
+    public toSourceText(): string {
+        return this.toUpperCaseText(this.convertorFactory.getSourceExtensions());
     }
 
     // The formats a file is taken in: a format that is only a target has no pair to start.
@@ -34,6 +38,12 @@ export class SupportedFormats {
     // The formats a file of `sourceExtension` is offered to convert into: its pairs alone.
     public toTargetList(sourceExtension: Extension): Extension[] {
         return this.sort(this.convertorFactory.getTargetExtensions(sourceExtension));
+    }
+
+    private toUpperCaseText(extensions: Extension[]): string {
+        return this.sort(extensions)
+            .map((extension) => extension.toUpperCase())
+            .join(", ");
     }
 
     private sort(extensions: Extension[]): Extension[] {

@@ -382,7 +382,9 @@ describe("Inbox end to end on the database", function () {
         failedUpdateReply: string;
     }> {
         const translate = (await createFluent(path.resolve(__dirname, "../../../src/telegram"))).withLocale(DEFAULT_LOCALE);
-        const formats = container.get<SupportedFormats>(Tokens.Bot.SupportedFormats).toText();
+        const supportedFormats = container.get<SupportedFormats>(Tokens.Bot.SupportedFormats);
+        const formats = supportedFormats.toText();
+        const sourceFormats = supportedFormats.toSourceText();
 
         return {
             welcomeReply: translate("start-command-welcome", { formats: formats }),
@@ -391,8 +393,8 @@ describe("Inbox end to end on the database", function () {
                 maxDownloadSizeMb: MAX_DOWNLOAD_SIZE_MB,
                 contact: AUTHOR_CONTACT,
             }),
-            notAFileReply: translate("not-a-file-middleware-hint", { formats: formats }),
-            unsupportedFileReply: translate("file-intake-middleware-unsupported", { filename: DOCUMENT_NAME, formats: formats }),
+            notAFileReply: translate("not-a-file-middleware-hint", { formats: sourceFormats }),
+            unsupportedFileReply: translate("file-intake-middleware-unsupported", { filename: DOCUMENT_NAME, formats: sourceFormats }),
             failedUpdateReply: translate("failed-update-answer-text", { contact: AUTHOR_CONTACT }),
         };
     }

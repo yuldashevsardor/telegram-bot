@@ -27,15 +27,17 @@ export class FontRejectionClassifier {
         [Extension.SVG]: [NotXml, NotSvg, NoFont],
     };
 
-    // The bases of every error a validator refuses a file with, the sfnt one of the font inside a
-    // container or an envelope included.
-    private static readonly INVALID_FONT: ReadonlyArray<ErrorClass> = [
-        InvalidSfntFont,
-        InvalidWoffFont,
-        InvalidWoff2Font,
-        InvalidEotFont,
-        InvalidSvgFont,
-    ];
+    // The bases of every error the validator of a format refuses a file with, the sfnt one of the
+    // font inside a container or an envelope included. A record, as NOT_IN_FORMAT: a format left
+    // out would make its every refusal an unexpected error.
+    private static readonly INVALID_FONT: Record<Extension, ReadonlyArray<ErrorClass>> = {
+        [Extension.TTF]: [InvalidSfntFont],
+        [Extension.OTF]: [InvalidSfntFont],
+        [Extension.WOFF]: [InvalidWoffFont, InvalidSfntFont],
+        [Extension.WOFF2]: [InvalidWoff2Font, InvalidSfntFont],
+        [Extension.EOT]: [InvalidEotFont, InvalidSfntFont],
+        [Extension.SVG]: [InvalidSvgFont],
+    };
 
     /**
      * Gives `undefined` for an error that is no refusal of the file: one of reading it, say.
@@ -49,7 +51,7 @@ export class FontRejectionClassifier {
             return FontRejection.NotInFormat;
         }
 
-        if (FontRejectionClassifier.INVALID_FONT.some((errorClass) => error instanceof errorClass)) {
+        if (FontRejectionClassifier.INVALID_FONT[extension].some((errorClass) => error instanceof errorClass)) {
             return FontRejection.Broken;
         }
 

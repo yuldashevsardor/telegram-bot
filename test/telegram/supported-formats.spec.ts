@@ -22,6 +22,10 @@ describe("SupportedFormats", function () {
             fromExtension === Extension.SVG ? [Extension.WOFF2, Extension.TTF] : [Extension.SVG],
     } as unknown as ConvertorFactory;
 
+    it("names the formats a pair starts from in upper case, in the order of the customer journey", function () {
+        expect(new SupportedFormats(partialFactory).toSourceText()).to.equal("TTF, SVG");
+    });
+
     it("takes in the formats a pair starts from, in the order of the customer journey", function () {
         expect(new SupportedFormats(partialFactory).toSourceList()).to.deep.equal([Extension.TTF, Extension.SVG]);
     });

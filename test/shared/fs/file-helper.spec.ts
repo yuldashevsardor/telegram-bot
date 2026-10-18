@@ -113,6 +113,17 @@ describe("FileHelper.createDirectoriesByDate", function () {
         expect([first, expectedPath(after)]).to.include(second);
     });
 
+    // Two documents handled at once on a fresh temporary directory.
+    it("creates the same directories for two calls at once", async function () {
+        const [first, second] = await Promise.all([
+            FileHelper.createDirectoriesByDate(basePath),
+            FileHelper.createDirectoriesByDate(basePath),
+        ]);
+
+        expect(first).to.equal(second);
+        expect(await FileHelper.isDirectory(first)).to.be.true;
+    });
+
     it("refuses a base path that does not exist", async function () {
         const missingPath = path.join(basePath, "missing");
 
@@ -141,6 +152,29 @@ describe("FileHelper.createDirectoriesByDate", function () {
     function expectedPath(dateTime: Dayjs): string {
         return path.join(basePath, dateTime.year().toString(), (dateTime.month() + 1).toString(), dateTime.date().toString());
     }
+});
+
+describe("FileHelper.createDatedFilePath", function () {
+    let basePath: string;
+
+    beforeEach(async function () {
+        basePath = await fs.mkdtemp(path.join(os.tmpdir(), "file-helper-"));
+    });
+
+    afterEach(async function () {
+        await fs.rm(basePath, { recursive: true, force: true });
+    });
+
+    it("gives a free path in the directory of the date, with a lower-case random name and the extension", async function () {
+        const filePath = await FileHelper.createDatedFilePath(basePath, "woff2");
+
+        // The directories of the year, the month and the day: the date itself is pinned by
+        // createDirectoriesByDate(), and a run may cross midnight.
+        expect(path.relative(basePath, path.dirname(filePath)).split(path.sep)).to.have.length(3);
+        expect(await FileHelper.isDirectory(path.dirname(filePath))).to.be.true;
+        expect(path.basename(filePath)).to.match(/^[a-z0-9]{15}\.woff2$/);
+        expect(await FileHelper.isExist(filePath)).to.be.false;
+    });
 });
 
 describe("FileHelper.findFilesByExtensions", function () {

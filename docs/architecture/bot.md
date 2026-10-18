@@ -220,10 +220,9 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
      the extension count there: a `NotSfnt` of the font inside a WOFF, a WOFF2 or an EOT file says
      that a file in its format is broken inside. A font collection named `.ttf` or `.otf` is "not
      in the format" too ([`cjm.md`](../product/cjm.md), step 5), though the validator answers it
-     with `BrokenSfnt`. A WOFF or a WOFF2 file of a collection (the flavor `ttcf`) stays "broken":
-     it is in its format, and no row of step 5 fits it (the owner's decision in PR #1012). Any
-     other error is thrown on, and the inbox picks the outcome of the update by it
-     ([`inbox.md`](./inbox.md), "Failures").
+     with `BrokenSfnt`. A WOFF or a WOFF2 file of a collection (the flavor `ttcf`) stays "broken"
+     (`cjm.md`, step 5). Any other error is thrown on, and the inbox picks the outcome of the
+     update by it ([`inbox.md`](./inbox.md), "Failures").
 
   A font that passes gets `file-intake-middleware-question` in reply to its message with the
   buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows: the targets
@@ -238,11 +237,14 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
 
 The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
 (`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in
-the order of the customer journey; the formats the intake takes and the buttons offer come from it
-too, in the same order ([`cjm.md`](../product/cjm.md)). The order is a rank per
-`Extension`, so an extension added to the enum without a rank fails the compile. What the user is
-promised changes with the pair matrix ([`font-convertor.md`](./font-convertor.md), "The pair
-table").
+the order of the customer journey. The two texts that ask for a file or refuse one,
+`not-a-file-middleware-hint` and the replies to an unsupported file, list `toSourceText()` instead,
+the formats a pair starts from (`getSourceExtensions()`): a format that is only a target would be
+named in the refusal of that very format. The formats the intake takes and the buttons offer come
+from `SupportedFormats` too, in the same order ([`cjm.md`](../product/cjm.md)). The order is a
+rank per `Extension`, so an extension added to the enum without a rank fails the compile. What the
+user is promised changes with the pair matrix ([`font-convertor.md`](./font-convertor.md), "The
+pair table").
 
 `Bot.setupDescriptions()` sets the description, what an empty chat with the bot shows before
 `/start`, and the short description, what its profile and a shared link show (step 0 of the

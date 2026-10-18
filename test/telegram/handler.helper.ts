@@ -27,6 +27,7 @@ export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyO
 // into every other.
 export const supportedFormats = {
     toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
+    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
     toSourceList: (): Extension[] => ORDERED_EXTENSIONS,
     toTargetList: (sourceExtension: Extension): Extension[] => ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension),
 } as SupportedFormats;

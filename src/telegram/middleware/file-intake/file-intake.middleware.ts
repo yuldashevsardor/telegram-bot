@@ -75,7 +75,7 @@ export class FileIntakeMiddleware extends Middleware {
         }
 
         const format = sourceExtension.toUpperCase();
-        const rejection = await this.validate(sourceFontPath, sourceExtension);
+        const rejection = await this.validateAndRemove(sourceFontPath, sourceExtension);
 
         if (rejection !== undefined) {
             await ctx.reply(this.rejectionText(ctx, rejection, format));
@@ -100,7 +100,7 @@ export class FileIntakeMiddleware extends Middleware {
 
     // The Bot API does not promise a document a name, though the clients of Telegram always send one.
     private async replyUnsupported(ctx: Context, document: Document): Promise<void> {
-        const formats = this.supportedFormats.toText();
+        const formats = this.supportedFormats.toSourceText();
 
         if (document.file_name === undefined) {
             await ctx.reply(ctx.t("file-intake-middleware-unsupported-unnamed", { formats: formats }));
@@ -121,7 +121,7 @@ export class FileIntakeMiddleware extends Middleware {
 
     // The download serves the check alone: the conversion takes the file from Telegram again, by the
     // message the question replies to.
-    private async validate(sourceFontPath: string, sourceExtension: Extension): Promise<FontRejection | undefined> {
+    private async validateAndRemove(sourceFontPath: string, sourceExtension: Extension): Promise<FontRejection | undefined> {
         try {
             await this.fontValidatorResolver.get(sourceExtension).validate(sourceFontPath);
 

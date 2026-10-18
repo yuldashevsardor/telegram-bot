@@ -43,6 +43,7 @@ describe("FontRejectionClassifier", function () {
 
     const broken: Array<[Extension, Error]> = [
         [Extension.TTF, new BrokenSfnt("broken sfnt")],
+        [Extension.OTF, new BrokenSfnt("broken sfnt")],
         [Extension.WOFF, new BrokenWoff("broken woff")],
         [Extension.WOFF2, new BrokenWoff2("broken woff2")],
         [Extension.EOT, new BrokenEot("broken eot")],
@@ -71,6 +72,11 @@ describe("FontRejectionClassifier", function () {
     // The sfnt inside a container is checked by the same rules, a collection among them.
     it("takes a collection inside a WOFF file for a broken file", function () {
         expect(classifier.classify(Extension.WOFF, collection())).to.equal(FontRejection.Broken);
+    });
+
+    // Each format has its own validator, so an error of another one is no refusal of the file.
+    it("takes an error of the validator of another format for no refusal", function () {
+        expect(classifier.classify(Extension.TTF, new BrokenFont("broken font"))).to.equal(undefined);
     });
 
     it("takes no error of reading the file for a refusal", function () {

@@ -59,7 +59,7 @@ export class NotAFileMiddleware extends Middleware {
             ctx.session.hintedMediaGroupId = message.media_group_id;
         }
 
-        await ctx.reply(ctx.t("not-a-file-middleware-hint", { formats: this.supportedFormats.toText() }));
+        await ctx.reply(ctx.t("not-a-file-middleware-hint", { formats: this.supportedFormats.toSourceText() }));
     }
 
     private hasContentOtherThanFile(message: Message): boolean {
