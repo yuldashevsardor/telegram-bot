@@ -66,12 +66,9 @@ export class InboxRunner {
         await this.runCompletion;
 
         const handlingsSettled = Promise.all([...this.handlingsInFlight.values()].map((handling) => handling.settled));
-        const haveHandlingsSettled = await withTimeout(handlingsSettled, this.stopDeadlineAtMs - Date.now());
-
-        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent: a settled handling leaves handlingsInFlight before its promise settles, so the rest of stop() walks an empty map and returns as well
-        if (haveHandlingsSettled) {
-            return;
-        }
+        // A handling leaves handlingsInFlight before its promise settles, so after a stop in time the walk
+        // below finds nothing to abort.
+        await withTimeout(handlingsSettled, this.stopDeadlineAtMs - Date.now());
 
         const writesOutsideHandlers: Promise<void>[] = [];
         const updateIdsLeftRunning: number[] = [];

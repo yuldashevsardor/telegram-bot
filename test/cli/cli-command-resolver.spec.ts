@@ -50,13 +50,13 @@ describe("CliCommandResolver", function () {
         expect(outbox.calls).to.deep.equal([]);
     });
 
-    const unknown: Array<[string[], string]> = [
+    const unknownCommands: Array<[string[], string]> = [
         [[], ""],
         [["queue", "retry", "1"], "queue retry"],
         [["Outbox", "retry"], "Outbox retry"],
     ];
 
-    for (const [args, shownCommand] of unknown) {
+    for (const [args, shownCommand] of unknownCommands) {
         it(`refuses the queue of "${args.join(" ")}", names the first two arguments and asks no resolver`, function () {
             const error = catchError(() => resolver.resolve(args));
 

@@ -259,7 +259,8 @@ export class SvgFontPreparer {
         const unicodeSpan = glyph.attributeSpans.get("unicode");
         const formSpan = glyph.attributeSpans.get("arabic-form");
 
-        if (unicodeValue === undefined || form === undefined || unicodeSpan === undefined || formSpan === undefined) {
+        // A glyph without `arabic-form` has no span of it either.
+        if (unicodeValue === undefined || unicodeSpan === undefined || formSpan === undefined) {
             return [];
         }
 

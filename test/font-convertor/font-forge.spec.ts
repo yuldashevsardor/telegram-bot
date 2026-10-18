@@ -109,8 +109,9 @@ describe("FontForge.convert", function () {
         expect(glyphs.get("uni06D5")).to.include({ unicode: "\u0647", "arabic-form": "isolated" });
         expect(glyphs.get("uni06D5.u06D5")).to.include({ unicode: "\u06D5", "horiz-adv-x": "408" });
         // The copy draws the glyph, not an empty outline under the same advance.
-        expect(glyphs.get("uni06D5")?.["d"]).to.be.a("string").and.not.empty;
-        expect(glyphs.get("uni06D5.u06D5")?.["d"]).to.equal(glyphs.get("uni06D5")?.["d"]);
+        const glyphOutline = glyphs.get("uni06D5")?.["d"];
+        expect(glyphOutline).to.be.a("string").and.not.empty;
+        expect(glyphs.get("uni06D5.u06D5")?.["d"]).to.equal(glyphOutline);
         expect([...glyphs.keys()].filter((glyphName) => glyphName.startsWith("uniFBE8."))).to.be.empty;
     });
 
