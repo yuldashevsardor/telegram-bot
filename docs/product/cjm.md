@@ -2,23 +2,23 @@
 
 What a person sees in the bot, step by step, and what the bot says at each step. The file
 describes the journey the bot is meant to give. A step that is not built yet differs from the code,
-and the code is the authority on what is built: today `/start` greets and echoes the next message
-(`StartConversation`), and no handler takes a file.
+and the code is the authority on what is built. Today no handler takes a file (steps 2-4 and the
+rows of step 5 about a file), the descriptions of step 0 are not set, the menu is not the one of
+step 7, and a failed update gets no answer (the last row of step 5).
 
 The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
 written in the same PR as the Russian text. `{formats}` in a text is the list of supported formats
-substituted from `ConvertorFactory.getSupportedExtensions()`, as the welcome does today
-([`i18n.md`](../architecture/i18n.md)). `{format}` is one format.
+substituted from `ConvertorFactory.getSupportedExtensions()` by `SupportedFormats`
+([`bot.md`](../architecture/bot.md), "Commands"). `{format}` is one format.
 
 A format is written in upper case, in texts and on buttons alike: `TTF`, not `ttf`. Wherever the
-bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOFF2, EOT, SVG. The
-welcome today substitutes the extensions as the code gives them: in lower case and in the order
-`getSupportedExtensions()` meets them in its map of pairs.
+bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOFF2, EOT, SVG.
 
-`{contact}` is how to reach the author of the bot. It is a configuration value, not a text of the
-`.ftl` ([`config.md`](../architecture/config.md)): the contact changes without a change of the
-texts.
+`{contact}` is how to reach the author of the bot. It is a configuration value, `BOT_AUTHOR_CONTACT`
+(`.env.dist`), not a text of the `.ftl`: the contact changes without a change of the texts.
+`{maxDownloadSizeMb}` is the size limit of a file the same way, `BOT_MAX_DOWNLOAD_SIZE`, 20 MB by
+default (see "5. Errors").
 
 The journey covers private chats only: `IsPrivateChatFilter` drops updates of every other chat
 ([`bot.md`](../architecture/bot.md)).
@@ -105,7 +105,7 @@ file again.
 | A message that is not a file: text, a photo, a sticker, a voice | Пришлите шрифт файлом — {formats}. |
 | An unknown command | The `/help` text. |
 | A file with no extension or with an unsupported one | «{filename}» — не шрифт или формат, который я не знаю. Поддерживаю: {formats}. |
-| A file over 20 MB | Файл больше 20 МБ — Telegram не даёт ботам скачивать такие файлы. |
+| A file over {maxDownloadSizeMb} MB | Файл больше {maxDownloadSizeMb} МБ — Telegram не даёт ботам скачивать такие файлы. |
 | The extension names a format, and the file is not in it (`NotWoff` and its siblings) | Файл назван как {format}, но внутри не {format}. Возможно, у него не то расширение. |
 | The file is in the format but breaks its rules (`BrokenWoff` and its siblings) | Файл похож на {format}, но повреждён. Попробуйте скачать шрифт заново из источника. |
 | The conversion failed on our side | Не получилось сконвертировать в {format}. Это ошибка на нашей стороне — попробуйте другой формат. |
@@ -117,8 +117,11 @@ The last row stands in for the silence of today: a failed update gets no answer
 ([`bot.md`](../architecture/bot.md)). It needs the chat to be reachable: when the failure is that
 the bot cannot send to Telegram, the answer cannot go out either.
 
-20 MB is the limit of the Bot API on files a bot downloads (`getFile`). A file over it never
-reaches the bot, so the check goes by the size Telegram reports in the message.
+20 MB, the default of `{maxDownloadSizeMb}`, is the limit of the Bot API on files a bot downloads
+(`getFile`). A file over it never reaches the bot, so the check goes by the size Telegram reports in
+the message.
+
+An album of photos gets the first row once, not once per photo.
 
 ## 6. /help
 
@@ -128,7 +131,7 @@ reaches the bot, so the check goes by the size Telegram reports in the message.
 > 3. Получите файл.
 >
 > Форматы: {formats}.
-> Размер файла — до 20 МБ.
+> Размер файла — до {maxDownloadSizeMb} МБ.
 > Несколько файлов можно прислать сразу: отвечу на каждый.
 >
 > Вопросы и ошибки: {contact}.

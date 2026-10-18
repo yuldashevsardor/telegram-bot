@@ -9,8 +9,8 @@ export type Locale = (typeof LOCALES)[number];
 export const DEFAULT_LOCALE: Locale = "ru";
 
 // Our own flavor instead of `FluentContextFlavor` from `@grammyjs/fluent`: its property name is
-// fixed, and an enumerable field with the Fluent instance travels into the conversation op-log
-// and `sessions` (see `createFluentMiddleware`).
+// fixed, and an enumerable field with the Fluent instance travels into `sessions` through a plugin
+// that snapshots the context (see `createFluentMiddleware`).
 export type FluentFlavor = {
     getFluent: () => Fluent;
     t: (key: string, context?: TranslationContext) => string;

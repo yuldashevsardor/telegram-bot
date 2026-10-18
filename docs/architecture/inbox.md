@@ -185,7 +185,7 @@ the claim into the attempt (see "Lease recovery").
 
 The handling is at least once. A node that dies after the handler ran and before its completion
 commits leaves the update `processing`; once the lease is recovered, the update is handled again:
-the user may get a reply twice, and a conversation may replay a step. The inbox cannot tell such an
+the user may get a reply twice. The inbox cannot tell such an
 update from one whose handler never ran. A retry runs the whole handler again too: a transient
 failure after the handler has replied, a lost connection on a later write, gives the user the
 reply once per attempt, up to `INBOX_MAX_ATTEMPTS` (see "Outcomes").
@@ -437,8 +437,7 @@ class, and why, is read off the method, its constants and their comments. In sho
   session of the update is not saved: grammY's `session()` writes it only once the rest of the
   pipeline returns (`convenience/session.js` of grammY), so the next update of the group runs on
   the session as it was before. Unlike after an `Undeliverable` failure, the reply may still reach
-  the user: a reply that asks for an answer can come when the conversation step that waits for the
-  answer was never saved, and the answer is then not taken as one. A call to a chat a failed
+  the user, while the session keeps no trace of the update. A call to a chat a failed
   message has blocked in the outbox ends the same way ([`bot.md`](./bot.md), "The outbox
   transformer"): until the chat is unblocked, every later update of that user holds a worker for
   `OUTBOX_RESULT_TIMEOUT` and queues one more reply in the blocked chat, where an `Unexpected`
@@ -670,7 +669,7 @@ spec takes everything from the `Container` of the application, on the database o
 the config `fillApplicationContext()` builds from the `DATABASE_*` variables of the environment, the
 `CONFIG` of the spec and the defaults, so a setting of a developer's `.env` does not reach it:
 `InboxRunner` with its source and processor, `Bot` with its filters, middleware,
-session and conversation, the outbox transformer on `bot.api`, the result waiter and `OutboxRunner`.
+session and commands, the outbox transformer on `bot.api`, the result waiter and `OutboxRunner`.
 It rebinds two tokens: `Tokens.Bot.ApiFactory` to point the outbox at the fake Bot API, and
 `Tokens.Bot.Session.Storage` to the real `PgsqlStorage` behind a wrapper whose reads of a chosen
 session throw first. Neither maintenance nor the polling source is started.

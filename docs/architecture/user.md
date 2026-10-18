@@ -32,9 +32,7 @@ does not come in an update and has no setter.
 
 The user lies in the context as a function, `ctx.getUser()`, not as a field. A clone of `User`
 would be an empty object, since everything in the entity is in private fields
-([invariant](./invariants.md)). The conversations plugin does not clone functions: it restores
-them bound to the live context. So inside a conversation `getUser()` returns the user of the
-current update, not a snapshot taken when the conversation was entered.
+([invariant](./invariants.md)).
 
 `ctx.from` is always filled here, by the construction of the pipeline: `HasSessionKeyFilter` has
 already dropped the updates without a session key ([`bot.md`](./bot.md)). The `if (!ctx.from)`

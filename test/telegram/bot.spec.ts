@@ -4,14 +4,13 @@ import { expect } from "chai";
 import type { NextFunction, RawApi, StorageAdapter, Transformer } from "grammy";
 import type { Chat, Message, Update, UserFromGetMe } from "@grammyjs/types";
 import { Bot } from "app/telegram/bot/bot";
-import type { BotSettings, Context, Conversation } from "app/telegram/bot/bot.types";
+import type { BotSettings, Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { InvalidConfigError } from "app/shared/errors";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import { Command } from "app/telegram/command/command";
 import { Middleware } from "app/telegram/middleware/middleware";
-import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
 import { createFluent } from "app/telegram/locale/locale";
@@ -40,11 +39,9 @@ type Harness = {
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-const SETTINGS: BotSettings = { token: "test-token" };
+const SETTINGS: BotSettings = { token: "test-token", authorContact: "@author", maxDownloadSizeMb: 20 };
 
 const USER_ID = 42;
-
-const GREETING = "greeting";
 
 class RecordingHasSessionKeyFilter extends HasSessionKeyFilter {
     public constructor(logger: Logger, private readonly events: string[]) {
@@ -96,22 +93,6 @@ class RecordingCommand extends Command {
         this.events.push(`/${this.command}`);
 
         await this.onCommand.hook(ctx);
-    }
-}
-
-class RecordingConversation extends ConversationHandler {
-    public readonly name: string = "recording";
-
-    public constructor(private readonly events: string[]) {
-        super();
-    }
-
-    protected async run(conversation: Conversation, ctx: Context): Promise<void> {
-        const greeting = await ctx.reply(GREETING);
-        this.events.push(`conversation greeted with message ${greeting.message_id}`);
-        const next = await conversation.wait();
-
-        this.events.push(`conversation got ${next.message?.text}`);
     }
 }
 
@@ -202,10 +183,12 @@ function build(settings: BotSettings = SETTINGS): Harness {
         new RecordingMiddleware("ResponseTimeMiddleware", events),
         new RecordingMiddleware("RequestLogMiddleware", events),
         new RecordingMiddleware("FillUserToContextMiddleware", events),
-        new RecordingConversation(events),
         new RecordingCommand("start", "start-command-description", events, onCommand),
+        new RecordingCommand("help", "help-command-description", events, onCommand),
         new RecordingCommand("bulk_messages", "bulk-messages-command-description", events, onCommand),
         new RecordingCommand("font_generator", "font-generator-command-description", events, onCommand),
+        new RecordingMiddleware("UnknownCommandMiddleware", events),
+        new RecordingMiddleware("NotAFileMiddleware", events),
         settings,
     );
 
@@ -265,6 +248,7 @@ describe("Bot", function () {
 
                 return [
                     { command: "start", description: translate("start-command-description") },
+                    { command: "help", description: translate("help-command-description") },
                     { command: "bulk_messages", description: translate("bulk-messages-command-description") },
                     { command: "font_generator", description: translate("font-generator-command-description") },
                 ];
@@ -303,12 +287,20 @@ describe("Bot", function () {
                     payload: { filters: ["RecordingHasSessionKeyFilter", "RecordingIsPrivateChatFilter"] },
                 },
                 { level: "debug", message: "Filters successfully setup.", payload: undefined },
-                { level: "debug", message: "Setup middlewares...", payload: undefined },
+                {
+                    level: "debug",
+                    message: "Setup middlewares...",
+                    payload: { middlewares: Array(4).fill("RecordingMiddleware") },
+                },
                 { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
-                { level: "debug", message: "Setup conversations...", payload: undefined },
-                { level: "debug", message: "Conversations successfully setup.", payload: undefined },
                 { level: "debug", message: "Setup commands...", payload: undefined },
                 { level: "debug", message: "Commands successfully setup.", payload: undefined },
+                {
+                    level: "debug",
+                    message: "Setup middlewares...",
+                    payload: { middlewares: ["RecordingMiddleware", "RecordingMiddleware"] },
+                },
+                { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
             ]);
         });
     });
@@ -368,19 +360,17 @@ describe("Bot", function () {
             expect(translated).to.equal(fluent.withLocale("en")("start-command-description"));
         });
 
-        // Step 6 above step 7: an update of a chat inside a conversation goes to wait(), even when it is a command.
-        it("hands the next update of a chat inside a conversation to the conversation, not to the commands", async function () {
-            const harness = await setUp();
-            harness.onCommand.hook = async (ctx: Context): Promise<void> => {
-                harness.onCommand.hook = async (): Promise<void> => undefined;
-                await ctx.conversation.enter("recording");
-            };
+        // Step 7 below step 6: a command the bot knows never reaches it.
+        it("hands an update no command took to the unknown command, then to the not-a-file answer", async function () {
+            const { bot, events } = await setUp();
 
-            await harness.bot.grammy.handleUpdate(message("/start"));
-            await harness.bot.grammy.handleUpdate(message("/font_generator"));
+            await bot.grammy.handleUpdate(message("/unknown"));
 
-            expect(harness.events).to.include("conversation got /font_generator");
-            expect(harness.events).to.not.include("/font_generator");
+            expect(events.slice(events.indexOf("FillUserToContextMiddleware") + 1)).to.deep.equal([
+                "UnknownCommandMiddleware",
+                "NotAFileMiddleware",
+                "session write",
+            ]);
         });
     });
 
@@ -414,26 +404,6 @@ describe("Bot", function () {
             ]);
             expect(sent.message_id).to.equal(1);
             expect(harness.calls.filter((call) => call.method === "sendMessage")).to.have.lengthOf(0);
-        });
-
-        // The conversations plugin installs its transformer on the Api of the update, around the one of
-        // the outbox, and answers a replayed call from its log: the greeting is not sent twice.
-        it("does not queue the calls a conversation replays on its next update", async function () {
-            const harness = await setUp();
-            harness.onCommand.hook = async (ctx: Context): Promise<void> => {
-                harness.onCommand.hook = async (): Promise<void> => undefined;
-                await ctx.conversation.enter("recording");
-            };
-
-            await harness.bot.grammy.handleUpdate(message("/start"));
-            await harness.bot.grammy.handleUpdate(message("second"));
-
-            expect(harness.pushed.map(({ payload }) => payload["text"])).to.deep.equal([GREETING]);
-            expect(harness.events.filter((event) => event.startsWith("conversation"))).to.deep.equal([
-                "conversation greeted with message 1",
-                "conversation greeted with message 1",
-                "conversation got second",
-            ]);
         });
     });
 });

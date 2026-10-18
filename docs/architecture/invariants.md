@@ -11,8 +11,7 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   inbox hands out one update of a group at a time.** `session()` is not lazy: it reads the row
   before its `next()` and writes it after the return. Two updates of the same user in the same chat
   running at once would both read the same state, and the second would write its state over the
-  first one. More than `requestCount` is lost: `@grammyjs/conversations` keeps the conversation
-  step in the same session. The group of an update is the key `session()` uses
+  first one. The group of an update is the key `session()` uses
   ([The inbox](#the-inbox)). Handing an update to `bot.grammy.handleUpdate()` from anywhere but
   `InboxUpdateProcessor` (a webhook, a second runner, a script) goes past that guarantee.
 - **The inbox group protects the check-then-act in `FillUserToContextMiddleware` only while
@@ -30,8 +29,8 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   on the way in. On the way out it writes a session the chain touched, and a new one even untouched,
   so the update of a new user dropped there leaves a `sessions` row ([`bot.md`](./bot.md), steps
   2-3).
-- **Pipeline handlers keep no update state in fields.** `Command`, `Filter`, `Middleware` and
-  `ConversationHandler` live as one instance per process. Updates of different users run
+- **Pipeline handlers keep no update state in fields.** `Command`, `Filter` and `Middleware`
+  live as one instance per process. Updates of different users run
   concurrently: the inbox serializes only the same `from.id` + `chat.id`. A field written before
   an `await` may belong to someone else's update by the next line. So `ctx` and everything derived
   from it travel as parameters.
@@ -45,11 +44,10 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   it first; nothing checks that no update is handled before `setup()`.
 - **`ctx.getUser()` exists only after `FillUserToContextMiddleware`.** Code higher up the pipeline
   or outside it (future background jobs) cannot count on the function.
-- **Everything enumerable in `Context` goes into the conversation op log and into `sessions`.** On
-  every `wait()` the conversations plugin clones all own enumerable properties of the context
-  except `update`, `api`, `me` and `conversation`, and keeps the snapshot in the session. Functions
-  it does not clone: it restores them bound to the live context. So whatever does not survive
-  cloning lies in the context as a function:
+- **A value in `Context` that does not survive cloning lies there as a function.** No plugin of the
+  bot snapshots the context today. One that does, as `@grammyjs/conversations` did on every
+  `wait()`, clones every own enumerable property of the context into the session and restores the
+  functions bound to the live context. So:
   - `ctx.getUser()` ([`user.md`](./user.md)) instead of a `ctx.user` field. Everything in `User`
     is in private fields, so its clone would be `{}`.
   - `ctx.getFluent()` ([`i18n.md`](./i18n.md)) instead of a field with a Fluent instance, of which
@@ -244,7 +242,7 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   reads and writes the row of the key around the handler; how the polling source reads the group is
   in [`inbox.md`](./inbox.md), "The polling source". A group that splits one session lets two of
   its updates run at once, on one node or two, and nothing else queues them: the second writes its
-  session over the first, losing `requestCount` and the conversation step. Nothing checks this.
+  session over the first, losing `requestCount`. Nothing checks this.
 - **`status` and `state` of the inbox tables are written only through `InboxStatus` and
   `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
   update or a group with a mistyped value silently drops out of every query

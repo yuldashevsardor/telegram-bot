@@ -10,8 +10,6 @@ import type { BotSettings, Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import type { SessionPayload } from "app/telegram/session/session.types";
-import type { ConversationHandler } from "app/telegram/conversation/conversation-handler";
-import { conversations, createConversation } from "@grammyjs/conversations";
 import type { Filter } from "app/telegram/filter/filter";
 import { InvalidConfigError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
@@ -38,10 +36,12 @@ export class Bot {
         @inject<Middleware>(Tokens.Bot.Middleware.ResponseTime) private readonly responseTimeMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.RequestLog) private readonly requestLogMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.FillUserToContext) private readonly fillUserToContextMiddleware: Middleware,
-        @inject<ConversationHandler>(Tokens.Bot.Conversations.Start) private readonly startConversation: ConversationHandler,
         @inject<Command>(Tokens.Bot.Command.Start) private readonly startCommand: Command,
+        @inject<Command>(Tokens.Bot.Command.Help) private readonly helpCommand: Command,
         @inject<Command>(Tokens.Bot.Command.BulkMessages) private readonly bulkMessagesCommand: Command,
         @inject<Command>(Tokens.Bot.Command.FontGenerator) private readonly fontGeneratorCommand: Command,
+        @inject<Middleware>(Tokens.Bot.Middleware.UnknownCommand) private readonly unknownCommandMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.NotAFile) private readonly notAFileMiddleware: Middleware,
         private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
@@ -65,12 +65,19 @@ export class Bot {
         // an update without chat silently (docs/architecture/bot.md, steps 1-2).
         await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
         await this.setupSession();
-        await this.setupMiddlewares();
+        await this.setupMiddlewares([
+            this.requestContextMiddleware,
+            this.responseTimeMiddleware,
+            this.requestLogMiddleware,
+            this.fillUserToContextMiddleware,
+        ]);
         // The commands need Fluent too: the same instance translates their descriptions for
         // setMyCommands.
         const fluent = await this.setupFlavor();
-        await this.setupConversations();
         await this.setupCommands(fluent);
+        // Below the commands, for what none of them took: an unknown command first, so that it does
+        // not get the hint for a text.
+        await this.setupMiddlewares([this.unknownCommandMiddleware, this.notAFileMiddleware]);
 
         this.isSetup = true;
     }
@@ -85,16 +92,10 @@ export class Bot {
         );
     }
 
-    private async setupMiddlewares(): Promise<void> {
-        this.logger.debug("Setup middlewares...");
+    private async setupMiddlewares(middlewares: Middleware[]): Promise<void> {
+        this.logger.debug("Setup middlewares...", { middlewares: middlewares.map((middleware) => middleware.constructor.name) });
 
         const composer = new Composer<Context>();
-        const middlewares = [
-            this.requestContextMiddleware,
-            this.responseTimeMiddleware,
-            this.requestLogMiddleware,
-            this.fillUserToContextMiddleware,
-        ];
 
         for (const middleware of middlewares) {
             middleware.setup(composer);
@@ -130,24 +131,10 @@ export class Bot {
         this.logger.debug("Filters successfully setup.");
     }
 
-    private async setupConversations(): Promise<void> {
-        this.logger.debug("Setup conversations...");
-
-        const conversationHandlers = [this.startConversation];
-
-        this.grammy.use(conversations());
-
-        for (const handler of conversationHandlers) {
-            this.grammy.use(createConversation(handler.handle.bind(handler), handler.name));
-        }
-
-        this.logger.debug("Conversations successfully setup.");
-    }
-
     private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
-        const commands = [this.startCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
+        const commands = [this.startCommand, this.helpCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
 
         const composer = new Composer<Context>();
 

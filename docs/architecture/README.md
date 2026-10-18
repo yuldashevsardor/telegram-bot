@@ -48,7 +48,7 @@ Telegram front end.
 
 Stack:
 
-- **grammY** + `@grammyjs/conversations`. The updates come by long polling through the inbox
+- **grammY**. The updates come by long polling through the inbox
   ([`inbox.md`](./inbox.md)).
 - **inversify** — DI, bindings by hand.
 - **PostgreSQL** — the `postgres` client (porsager) at runtime, `node-pg-migrate` for migrations.
@@ -129,7 +129,7 @@ src/
   cli.ts                    entry point of `npm run cli`: the container without the bot, one command by the arguments (outbox.md)
   cli/                      what `npm run cli` runs: the CliCommand contract, the first-level resolver, the arguments helper, the base of the queue resolvers (telegram/); the commands lie with their queue (outbox.md)
   font-convertor/           font conversion (font-convertor.md)
-  telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md); what the outbox and the inbox share: the retry delay (retry-delay/), the error classes of a failed Bot API call (bot-api-failure-classifier/), the Api factory, the jsonb string rule (outbox.md, inbox.md); the file a queued call sends, PathFile (path-file/, outbox.md)
+  telegram/                 grammY: commands, middleware, filters, session, locales (bot.md, i18n.md); what the outbox and the inbox share: the retry delay (retry-delay/), the error classes of a failed Bot API call (bot-api-failure-classifier/), the Api factory, the jsonb string rule (outbox.md, inbox.md); the file a queued call sends, PathFile (path-file/, outbox.md); the list of formats the texts name (supported-formats.ts, bot.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     inbox/                  the inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the runner with its update source and the processor of one update over the bot, the timers of the lease recovery, the cleanup and the line of the blocked groups (maintenance/), the error classes and the outcomes of a failed handler, the release on stop, the polling source, the unblock of a group (command/) (inbox.md)
     outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup, the status line and the line of the blocked chats (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call, the outcomes of a failure, the result waiter with its reader, the payload codec, the commands that unblock a chat (command/) (outbox.md)
@@ -213,10 +213,10 @@ the import path can be guessed from the class name.
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
 - `validator/` — by `font-validator-resolver.ts`;
-- `command/`, `conversation/`, `filter/` and `middleware/` — by `Bot` (`telegram/bot/bot.ts`);
+- `command/`, `filter/` and `middleware/` — by `Bot` (`telegram/bot/bot.ts`);
 - `outbox/command/` and `inbox/command/` — by `OutboxCommandResolver` and `InboxCommandResolver`,
   which lie with their commands;
-- the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
+- the `.ftl` bundles in the `locale/` directories at commands and middleware — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
 
 The walk looks for files by extension (`FileHelper.findFilesByExtensions()`), not by directory
@@ -224,7 +224,7 @@ name. So it does not confuse the bundle directories with the namesake `telegram/
 holds `locale.ts` itself with its companions and not a single `.ftl`.
 
 The base class of the contract lies with the siblings (`command/command.ts`,
-`conversation/conversation-handler.ts`, `filter/filter.ts`, `middleware/middleware.ts`,
+`filter/filter.ts`, `middleware/middleware.ts`,
 `validator/font-validator.ts`), in the parent (`convertor/convertor.ts`) or, as the `CliCommand`
 interface of the commands of the queues, in the module that runs them (`cli/cli-command.ts`). A
 siblings directory is named after their contract (`command/` at `command.ts`) or after a feature
@@ -233,8 +233,10 @@ the siblings share (`convertor/eot/` — the source format).
 **Stands around one sibling** — a sibling leaves the siblings directory for a directory of its
 own only when it has files of its own or a role of its own among the siblings:
 
-- `command/start/`, `command/bulk-messages/`, `command/font-generator/` and `conversation/start/`
-  keep the command or the conversation together with their `locale/` bundles;
+- `command/start/`, `command/help/`, `command/bulk-messages/`, `command/font-generator/` and
+  `middleware/not-a-file/` keep the command or the middleware together with their `locale/`
+  bundles; `command/help/` also keeps `HelpText`, which builds the text of its bundle for the
+  command and for `UnknownCommandMiddleware`;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser,
   the range check of the points of an outline and the text codec it shares with `SvgFontPreparer`,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
@@ -342,13 +344,13 @@ A siblings directory and a directory around a sibling fall out of the rule, but 
 conditions:
 
 - A directory around a sibling is always reflected, even when it hides its `locale/` bundles.
-  `telegram/command/start/` (named after `start.command.ts`) and `telegram/conversation/start/`
+  `telegram/command/start/` (named after `start.command.ts`) and `telegram/middleware/not-a-file/`
   stand in the spec path in full.
 - A siblings directory is reflected only when it does not hide: "hides" takes precedence.
-  `command/` (named after `command.ts`), `conversation/`, `filter/` and `middleware/` give outwards
-  both the base class and the siblings, and are reflected. `convertor/` keeps the `<from>/`
-  siblings directories, but from outside only `convertor-factory.ts` is imported from it, so it is
-  not reflected.
+  `command/` (named after `command.ts`), `filter/` and `middleware/` give outwards both the base
+  class and the siblings, and are reflected.
+  `convertor/` keeps the `<from>/` siblings directories, but from outside only
+  `convertor-factory.ts` is imported from it, so it is not reflected.
 
 A siblings directory inside a non-reflected one is reflected without it: a spec of
 `convertor/eot/eot-to-ttf.ts` would go into `test/font-convertor/eot/`. The pairs have no specs

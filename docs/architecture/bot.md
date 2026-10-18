@@ -1,17 +1,17 @@
 # Bot
 
 `Bot` (`telegram/bot/bot.ts`) wraps `grammy.Bot<Context>` and knows only the Telegram layer.
-`Context` (`bot.types.ts`) is the grammY context with the session, conversation and Fluent
+`Context` (`bot.types.ts`) is the grammY context with the session and Fluent
 flavors, plus `ctx.getUser()`. `FluentFlavor` (`locale.types.ts`) is our own, not the flavor of
 the plugin ([`i18n.md`](./i18n.md)).
 
 `Bot.setup()` first installs the outbox transformer on `bot.grammy.api` (see "The outbox
 transformer"), then assembles the pipeline strictly in the order below. An update from the inbox
 travels it top to bottom, and every step counts on what the steps above filled in. Every filter,
-middleware, conversation and command comes into the `Bot` constructor by a separate `@inject`.
-`Bot` builds the lists of steps 1-2, 4, 6 and 7 out of those fields itself, so the order in the
-pipeline is the order in those lists, not the order of the bindings in `container.ts`. `Bot` does
-not import the container.
+middleware and command comes into the `Bot` constructor by a separate `@inject`. `Bot` builds the
+lists of steps 1-2, 4, 6 and 7 out of those fields itself, so the order in the pipeline is the
+order in those lists, not the order of the bindings in `container.ts`. `Bot` does not import the
+container.
 
 1. `HasSessionKeyFilter` gets the raw update. It drops updates without `from` or `chat`: they
    have no session, and everything below counts on one. It decides with the same `getSessionKey`
@@ -31,17 +31,21 @@ not import the container.
    first. Both filters stand above the session: a group update does have a session key, and
    step 3 would create a `sessions` row for it before the drop ([invariant](./invariants.md)).
 3. `session()`: the key is `${from.id}:${chat.id}`, the storage `PgsqlStorage` (table
-   `sessions`), the payload `{ requestCount }`. It reads the row right away (`read`). After the
-   chain returns, it writes the row back with an upsert (`write`) if the session was read or
-   changed. A new session counts as changed from the start. An error thrown below never reaches
-   the write. Below this step `ctx.session` is filled in.
+   `sessions`), the payload `SessionPayload` (`session.types.ts`). It reads the row right away
+   (`read`). After the chain returns, it writes the row back with an upsert (`write`) if the
+   session was read or changed. A new session counts as changed from the start. An error thrown
+   below never reaches the write. Below this step `ctx.session` is filled in.
+
+   A row written while the former `/start` conversation waited still holds a `conversation`
+   field, the state of `@grammyjs/conversations`, which the bot no longer installs. Nothing reads
+   the field, and the upsert writes it back with the rest of the payload.
 
    Nothing in the pipeline serializes the updates of one session: the read and the write wrap the
    whole chain, so two updates of a session running at once would lose the first one's state. The
    inbox is what prevents it: it hands out one update of a group, the same key, at a time across
    nodes ([`inbox.md`](./inbox.md); [invariant](./invariants.md)).
-4. Middleware: `RequestContextMiddleware` → `ResponseTimeMiddleware` → `RequestLogMiddleware` →
-   `FillUserToContextMiddleware`.
+4. Middleware, the first call of `Bot.setupMiddlewares()`: `RequestContextMiddleware` →
+   `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
    - `RequestContextMiddleware` goes first, so everything logged below carries a `requestId`
      ([`logging.md`](./logging.md)).
    - `ResponseTimeMiddleware` logs an `info` with the time around `next()`. It has no
@@ -52,14 +56,12 @@ not import the container.
    - `FillUserToContextMiddleware` catches no errors. Below it `ctx.getUser()` is filled in
      ([`user.md`](./user.md)).
 5. Fluent ([`i18n.md`](./i18n.md)). Below it `ctx.t` and `ctx.getFluent()` are filled in.
-6. `conversations()`, plus a `createConversation` for every conversation in the list of
-   `Bot.setupConversations()`. An update of a chat that is inside a conversation goes to its
-   `wait()` point and never reaches step 7: `createConversation` calls `next()` only when the
-   conversation did not take the update.
-7. The commands from the list of `Bot.setupCommands()`: `command.setup(composer)` for each, then
+6. The commands from the list of `Bot.setupCommands()`: `command.setup(composer)` for each, then
    `api.setMyCommands()` for every locale ([`i18n.md`](./i18n.md)). That is a network call per
-   locale on every start. This is the last step: an update that matched no command goes nowhere
-   further.
+   locale on every start. An update that matched no command goes on to step 7.
+7. What no command took: a second call of `Bot.setupMiddlewares()`, below the commands, with
+   `UnknownCommandMiddleware` → `NotAFileMiddleware` (see "Commands"). This is the last step: a
+   document and a message without content pass both, and nothing takes them further.
 
 One update costs the database:
 
@@ -82,7 +84,7 @@ failures that do not block are seen in the `attempts` of the inbox tables only
 ([`inbox.md`](./inbox.md), "Outcomes").
 
 The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`, `["message"]`.
-Commands and `conversation.wait()` in private chats need messages alone. The `getUpdates` default
+Commands and the answers of step 7 in private chats need messages alone. The `getUpdates` default
 would also bring every type the bot does not serve. Each of those costs the network, and one that
 passes the filters also costs the `sessions` read and write, the middleware and a `users` write.
 The list names update types, not the contents of a message: a file arrives as the same `message`
@@ -93,8 +95,7 @@ on its side, and after the list changes, updates of the old types accumulated be
 arrive.
 
 `Command`, `Filter` and `Middleware` are abstract bases of the shape "`handle` +
-`setup(composer)`". `ConversationHandler` does not attach itself: a subclass implements `run`, and
-`createConversation()` wraps its `handle` (step 6).
+`setup(composer)`".
 
 `Filter.setup()` breaks the chain itself: it calls `next()` only when `handle()` is true.
 `composer.filter()` of grammY cannot do that. It does not drop the update: it only puts the
@@ -156,27 +157,41 @@ These calls go straight to Telegram, past the outbox:
 - the methods of `OutboxTransformer.GROUP_METHODS_PAST_THE_OUTBOX` for a group chat: Telegram
   does not count them towards the limit of the group.
 
-`@grammyjs/conversations` installs a transformer of its own on the `Api` of the update, around
-this one. While it replays a conversation it answers each call from its log and does not call the
-transformer below it, so a replayed `ctx.reply()` is not pushed again (the test in
-`test/telegram/bot.spec.ts`). Its log keeps the result the call got the first time, which is why
-the transformer resolves the call to the real `Message` rather than at the push.
-
 A handler that awaits a call to a chat waits for the pull of its message, the limits of the chat
 and of the bot, and the send.
 
 ## Commands
 
-`/start` is the entrance to a conversation. `StartCommand.handle` calls
-`startConversation.enter(ctx)` → `ctx.conversation.enter("start")`. `StartConversation.run()` then
-builds the greeting `ctx.t("start-conversation-welcome", { formats })` ([`i18n.md`](./i18n.md)).
-It sends it with `ctx.reply()` through the outbox (see "The outbox transformer") and stops at
-`conversation.wait()`. At `wait()` the execution is suspended. The next update of this chat
-resumes it, with a second full pass of the pipeline, the `users` upsert included. The text of that
-update is echoed back; a non-text one gets `start-conversation-not-text`, a request to send text.
-Then the conversation ends. The plugin keeps the state of the conversation in the same session
-([invariant](./invariants.md)), so the inbox group protects it as well. Nobody catches errors
-inside `run()`.
+The texts of `/start`, `/help` and step 7 are those of the customer journey
+([`cjm.md`](../product/cjm.md), steps 1, 5 and 6). Each handler builds its text with `ctx.t()`
+([`i18n.md`](./i18n.md)) and sends it with one `ctx.reply()` through the outbox (see "The outbox
+transformer"). The next message is routed by what it is, not by what the bot said before: the one
+thing they keep in the session is the album `NotAFileMiddleware` answered last (below).
+
+- `/start` (`StartCommand`) replies with `start-command-welcome`, the list of formats substituted.
+  A repeated `/start` gives the same text.
+- `/help` (`HelpCommand`) replies with `help-command-text`: the formats, the size limit of a file
+  (`BOT_MAX_DOWNLOAD_SIZE`, the limit of `getFile`) and `{contact}` (`BOT_AUTHOR_CONTACT`). Both
+  are variables with a default (`.env.dist`), so they change without an edit of the `.ftl`.
+- `UnknownCommandMiddleware` answers a message whose text opens with a command no command of step 6
+  took with the text of `/help`: it and `HelpCommand` build the text with `HelpText`
+  (`command/help/help-text.ts`). A command elsewhere in the text is not one, as for grammY's
+  `command()`, and such a text goes on as a text.
+- `NotAFileMiddleware` answers a message with content a person sends (`CONTENT_FIELDS`: a text, a
+  photo, a GIF, a sticker and the like) with `not-a-file-middleware-hint`, a request to send the
+  font as a file. A GIF gets the request even though Telegram puts it into `document` as well. A
+  document gets no answer: no handler takes a file yet. A service message (a pin, access granted
+  from a mini app) has no content and gets no answer either. An album comes as one message per
+  item, each an update of its own, and only its first item gets the request: the middleware keeps
+  the `media_group_id` it answered in `session.hintedMediaGroupId` and leaves an item of the same
+  album unanswered. The inbox hands out the updates of a session one at a time, in their order
+  ([`inbox.md`](./inbox.md)), so the first item is answered before the next is read.
+
+The list of formats in all three comes from `SupportedFormats` (`telegram/supported-formats.ts`):
+`ConvertorFactory.getSupportedExtensions()`, in upper case, in the order of the customer journey
+([`cjm.md`](../product/cjm.md)). The order is a rank per `Extension`, so an extension added to
+the enum without a rank fails the compile. What the user is promised changes with the pair matrix
+([`font-convertor.md`](./font-convertor.md), "The pair table").
 
 `/font_generator` is a debugging conversion of a fixture into four formats
 ([`font-convertor.md`](./font-convertor.md)). It costs up to four `fontforge` runs per command,

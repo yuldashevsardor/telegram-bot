@@ -1,47 +1,35 @@
 import "reflect-metadata";
 import path from "path";
 import { expect } from "chai";
-import { Api, Composer, Context as GrammyContext } from "grammy";
-import type { Update, UserFromGetMe } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot/bot.types";
-import type { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { StartCommand } from "app/telegram/command/start/start.command";
 import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
-
-const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
-
-function commandUpdate(text: string): Update {
-    return {
-        update_id: 1,
-        message: {
-            message_id: 1,
-            date: 0,
-            chat: { id: 1, type: "private", first_name: "User" },
-            from: { id: 1, is_bot: false, first_name: "User" },
-            text: text,
-            entities: [{ type: "bot_command", offset: 0, length: text.length }],
-        },
-    };
-}
+import { commandMessage, runHandler, supportedFormats } from "test/telegram/handler.helper";
 
 describe("StartCommand", function () {
-    // The update goes through setup(), as in Bot: the command has to answer to its own name.
-    it("enters the start conversation with the update context on /start", async function () {
-        const entered: Context[] = [];
-        const startConversation = {
-            enter: async (ctx: Context): Promise<void> => {
-                entered.push(ctx);
-            },
-        } as unknown as StartConversation;
-        const ctx = new GrammyContext(commandUpdate("/start"), new Api("test-token"), ME) as Context;
-        const composer = new Composer<Context>();
-        new StartCommand(startConversation).setup(composer);
+    it("replies with the welcome of the customer journey on /start", async function () {
+        const { replies, isPassedOn } = await runHandler(new StartCommand(supportedFormats), commandMessage("/start"));
 
-        await composer.middleware()(ctx, () => Promise.resolve());
+        expect(replies).to.deep.equal([
+            [
+                "Пришлите файл шрифта — сконвертирую его в другой формат.",
+                "Форматы: TTF, OTF, WOFF, WOFF2, EOT, SVG.",
+                "Можно прислать несколько файлов сразу: отвечу на каждый.",
+            ].join("\n"),
+        ]);
+        expect(isPassedOn).to.equal(false);
+    });
 
-        expect(entered).to.have.lengthOf(1);
-        expect(entered[0]).to.equal(ctx);
+    it("replies in the locale of the update", async function () {
+        const { replies } = await runHandler(new StartCommand(supportedFormats), commandMessage("/start"), "en");
+
+        expect(replies).to.deep.equal([
+            [
+                "Send me a font file, and I will convert it into another format.",
+                "Formats: TTF, OTF, WOFF, WOFF2, EOT, SVG.",
+                "You can send several files at once: I will answer each of them.",
+            ].join("\n"),
+        ]);
     });
 
     // Bot translates descriptionKey for the command menu, and Fluent gives back `{key}` for a key
@@ -49,7 +37,7 @@ describe("StartCommand", function () {
     // keys in every locale".
     it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
-        const { descriptionKey } = new StartCommand({} as StartConversation);
+        const { descriptionKey } = new StartCommand(supportedFormats);
 
         expect(fluent.translate(DEFAULT_LOCALE, descriptionKey)).to.not.equal(`{${descriptionKey}}`);
     });

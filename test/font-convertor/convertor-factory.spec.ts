@@ -34,11 +34,9 @@ function convertorClassName(fromExtension: Extension, toExtension: Extension): s
 }
 
 describe("ConvertorFactory.getSupportedExtensions", function () {
-    // The order is checked on purpose: the user sees the list in this order in the /start
-    // welcome (StartConversation). The list follows the order of the matrix: a format enters it
-    // where it first appears, as a source or a target. So reordering the matrix changes the welcome.
-    it("returns every extension of the conversion matrix in the order of its first appearance", function () {
-        expect(convertorFactory.getSupportedExtensions()).to.deep.equal([
+    // The order of the list does not reach the user: the bot sorts it (SupportedFormats).
+    it("returns every extension of the conversion matrix", function () {
+        expect(convertorFactory.getSupportedExtensions()).to.have.members([
             Extension.WOFF,
             Extension.EOT,
             Extension.OTF,

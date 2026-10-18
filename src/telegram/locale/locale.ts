@@ -64,8 +64,9 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
 }
 
 // Plugs Fluent into the pipeline instead of `useFluent()` from `@grammyjs/fluent`, whose
-// enumerable `fluent` field, under a name it does not let us change, would travel into the
-// conversation op-log and `sessions` and come back an empty shell (docs/architecture/i18n.md).
+// enumerable `fluent` field, under a name it does not let us change, would travel into `sessions`
+// through a plugin that snapshots the context and come back an empty shell
+// (docs/architecture/i18n.md).
 // Parsing the `.ftl` and translating stay with `@moebius/fluent`; only the three lines of the
 // plugin without `fluent` are repeated here.
 export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {

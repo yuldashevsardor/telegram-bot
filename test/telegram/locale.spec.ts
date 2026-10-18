@@ -285,14 +285,13 @@ describe("createFluentMiddleware", function () {
         expect((await runMiddleware("en-001")).t("greeting")).to.equal(DEFAULT_LOCALE);
     });
 
-    // The shape of the properties is checked, not the values alone. The conversations plugin
-    // writes into the op-log, and from there into the session, every own enumerable property
-    // of the context except the intrinsic ones. So the `fluent` field (with `useFluent()` a
-    // `{ instance, useLocale, renegotiateLocale }` wrapper) must not be in the context, or the
-    // parsed bundles will travel into `sessions` as an empty shell again. Functions the plugin
+    // The shape of the properties is checked, not the values alone. A plugin that snapshots the
+    // context, as the conversations plugin did, writes into the session every own enumerable
+    // property of the context except the intrinsic ones. So the `fluent` field (with `useFluent()`
+    // a `{ instance, useLocale, renegotiateLocale }` wrapper) must not be in the context, or the
+    // parsed bundles would travel into `sessions` as an empty shell. Functions such a plugin
     // restores bound to the live context, but it remembers only the keys of own enumerable
-    // properties: a `t` behind a descriptor or on the prototype would silently stop working
-    // inside a conversation.
+    // properties: a `t` behind a descriptor or on the prototype would silently stop working.
     it("keeps Fluent in the context as own enumerable functions", async function () {
         const ctx = await runMiddleware("ru");
 

@@ -845,9 +845,9 @@ What is deliberately not checked, with the reasons, is in the class comment of
 ## The pair table
 
 The pair table in `ConvertorFactory` is the only source of what the domain can do. The convertor is
-picked from it, and `getSupportedExtensions()` is derived from it. The welcome promises that list to
-the user ([`i18n.md`](./i18n.md)). A format declared in `Extension` but absent from the table does
-not count as supported.
+picked from it, and `getSupportedExtensions()` is derived from it. The bot promises that list to
+the user ([`bot.md`](./bot.md), "Commands"). A format declared in `Extension` but absent from the
+table does not count as supported.
 
 ## Known
 

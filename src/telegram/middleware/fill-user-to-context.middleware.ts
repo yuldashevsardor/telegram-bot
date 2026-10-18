@@ -46,8 +46,8 @@ export class FillUserToContextMiddleware extends Middleware {
             });
         }
 
-        // A function, not a field: a clone of User in the conversation op log is an empty object,
-        // and a function is restored bound to the live context (docs/architecture/user.md).
+        // A function, not a field: a clone of User is an empty object, and a plugin that snapshots
+        // the context restores a function bound to the live context (docs/architecture/user.md).
         ctx.getUser = (): User => user;
 
         return next();
