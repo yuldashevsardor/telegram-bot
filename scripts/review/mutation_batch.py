@@ -59,9 +59,10 @@ and takes no lock:
    as docs/agents/review-gates.md says) in more than comments sends the batch to the full run:
    stdout stays empty, and stderr names the PR and the file. A change of `stryker.config.mjs` that
    adds or removes the entries of its exclusion lists alone (`EXCLUSION_LISTS`) does not: it keeps
-   the `.ts` of `src/` a removed source exclusion matches at the merge commit, and the specs an
-   entry new in `DATABASE_SPECS` matches before the PR, as item 4 keeps a deleted one. A changed
-   entry past `*`, `**` and `?` is not read and sends the batch to the full run.
+   the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left
+   excludes, and the specs an entry new in `DATABASE_SPECS` matches before the PR, as item 4 keeps a
+   deleted one. A removed source exclusion or a new spec entry past `*`, `**` and `?` is not read
+   and sends the batch to the full run.
 4. Otherwise keeps each `.ts` in `src/` or `test/` the PR added, renamed or changed in more than
    comments, by the rules of docs/agents/review-gates.md, "Comments-only diffs" (`Scanner` and
    `is_comments_only` below), and each spec or spec helper it deleted. A file the scanner cannot
@@ -1255,9 +1256,10 @@ def exclusions_by_line(code: List[str]) -> List[Optional[Exclusion]]:
 
 
 class ExclusionChange(NamedTuple):
-    # The paths and globs of sources no longer excluded, and the paths and globs of specs excluded
-    # anew.
+    # The paths and globs of sources no longer excluded, of the sources excluded after the change,
+    # and of the specs excluded anew.
     included_sources: List[str]
+    excluded_sources: List[str]
     excluded_specs: List[str]
 
 
@@ -1283,18 +1285,23 @@ def exclusion_change(old_text: str, new_text: str) -> Optional[ExclusionChange]:
         if None in old_exclusions[old_start:old_end] + new_exclusions[new_start:new_end]:
             return None
     # By what the lists exclude, not by the changed lines: a source moved from one list to another
-    # stays excluded.
+    # in the same form stays excluded, and in another form `exclusion_kept` tells.
     old_sources = {found.path for found in old_exclusions if found and found.excludes_source}
     new_sources = {found.path for found in new_exclusions if found and found.excludes_source}
     old_specs = {found.path for found in old_exclusions if found and not found.excludes_source}
     new_specs = {found.path for found in new_exclusions if found and not found.excludes_source}
-    return ExclusionChange(sorted(old_sources - new_sources), sorted(new_specs - old_specs))
+    return ExclusionChange(
+        sorted(old_sources - new_sources), sorted(new_sources), sorted(new_specs - old_specs)
+    )
 
 
 def glob_pattern(glob: str) -> Optional["re.Pattern[str]"]:
     """The paths a glob of an exclusion list matches; None for a glob past `*`, `**` and `?`."""
     if GLOB_UNREAD.search(glob):
         return None
+    # Stryker and mocha take a path from the root of the project with `./` in front as well.
+    if glob.startswith("./"):
+        glob = glob[2:]
     pattern = ""
     at = 0
     while at < len(glob):
@@ -1320,9 +1327,10 @@ def exclusion_kept(
     pr: int, parent: str, commit: str, main_line: "MainLine", run: Run, report: Report
 ) -> Optional[List[Kept]]:
     """The files a change of stryker.config.mjs in its exclusion lists alone puts into the batch:
-    the `.ts` of `src/` a removed source exclusion matches at the merge commit, and the specs an
-    entry new in `DATABASE_SPECS` matches before the PR, as a deleted spec stands for the sources it
-    imported; None when the change sends the batch to the full run."""
+    the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left
+    excludes, and the specs an entry new in `DATABASE_SPECS` matches before the PR, as a deleted
+    spec stands for the sources it imported; None when the change sends the batch to the full
+    run."""
     change = exclusion_change(
         file_at(parent, STRYKER_CONFIG, run), file_at(commit, STRYKER_CONFIG, run)
     )
@@ -1336,15 +1344,22 @@ def exclusion_kept(
             report("PR #{}: {} changes an exclusion not read: {}".format(pr, STRYKER_CONFIG, glob))
             return None
         patterns[glob] = pattern
+    # A glob not read here cannot say that a file stays excluded, and the file goes into the batch.
+    excluded = [glob_pattern(glob) for glob in change.excluded_sources]
+    still_excluded = [pattern for pattern in excluded if pattern is not None]
     report("PR #{}: {} changed in its exclusion lists alone".format(pr, STRYKER_CONFIG))
     kept = []
     for glob in change.included_sources:
         report("PR #{}: no longer excluded: {}".format(pr, glob))
-        kept.extend(
-            Kept(path, commit)
-            for path in sorted(main_line.tree(commit))
-            if path.startswith("src/") and path.endswith(".ts") and patterns[glob].fullmatch(path)
-        )
+        for path in sorted(main_line.tree(commit)):
+            if not (path.startswith("src/") and path.endswith(".ts")):
+                continue
+            if not patterns[glob].fullmatch(path):
+                continue
+            if any(pattern.fullmatch(path) for pattern in still_excluded):
+                report("PR #{}: still excluded: {}".format(pr, path))
+                continue
+            kept.append(Kept(path, commit))
     # A spec new in the PR is not in the tree before it: it is a changed `.ts` of its own.
     for glob in change.excluded_specs:
         for path in sorted(main_line.tree(parent)):

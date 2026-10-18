@@ -988,6 +988,7 @@ class GlobPatternTest(unittest.TestCase):
             ("src/**/index.ts", ["src/index.ts", "src/dir/index.ts"], ["src/dir/index.tsx"]),
             ("src/dir/**", ["src/dir/index.ts", "src/dir/x/y.ts"], ["src/dirt.ts"]),
             ("src/a.ts", ["src/a.ts"], ["src/a_ts", "src/b.ts"]),
+            ("./src/a.ts", ["src/a.ts"], ["./src/a.ts"]),
         ):
             pattern = mutation_batch.glob_pattern(glob)
             for path in matched:
@@ -1488,6 +1489,18 @@ class BatchFilesTest(unittest.TestCase):
         self.assertEqual((code, lines), (0, ["src/b.ts"]))
         self.assertNotIn("no longer excluded", err)
 
+    def test_a_source_moved_into_another_form_of_exclusion_stays_excluded(self):
+        moved = STRYKER_WITH_LISTS.replace('    "src/c.ts",\n', "").replace(
+            '        "!src/dir/**",\n', '        "!src/dir/**",\n        "!src/c*.ts",\n'
+        )
+        github = self.config_pr(moved)
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/b.ts"]))
+        self.assertIn("PR #801: no longer excluded: src/c.ts\n", err)
+        self.assertIn("PR #801: still excluded: src/c.ts\n", err)
+
     def test_a_changed_glob_past_stars_and_question_marks_takes_the_full_run(self):
         for config, glob in (
             (STRYKER_WITH_LISTS.replace('        "!src/{a,b}.ts",\n', ""), "src/{a,b}.ts"),
@@ -1521,6 +1534,18 @@ class BatchFilesTest(unittest.TestCase):
         self.assertEqual((code, lines), (0, ["src/b.ts src/c.ts"]))
         self.assertIn("PR #801: excluded anew: test/c.spec.ts\n", err)
         self.assertIn("PR #801: test/c.spec.ts -> src/c.ts\n", err)
+
+    def test_a_spec_excluded_anew_by_a_path_from_the_root_runs_its_sources(self):
+        github = self.config_pr(
+            STRYKER_WITH_LISTS.replace(
+                '    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "./test/c.spec.ts",\n'
+            )
+        )
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/b.ts src/c.ts"]))
+        self.assertIn("PR #801: excluded anew: test/c.spec.ts\n", err)
 
     def test_a_spec_glob_excluded_anew_runs_the_sources_of_the_specs_it_matches(self):
         github = self.config_pr(
