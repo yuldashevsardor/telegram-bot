@@ -34,8 +34,8 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   concurrently: the inbox serializes only the same `from.id` + `chat.id`. A field written before
   an `await` may belong to someone else's update by the next line. So `ctx` and everything derived
   from it travel as parameters.
-- **A new update type in the handlers requires an edit of `ALLOWED_UPDATES`** (`bot.types.ts`). A
-  `callback_query` or `edited_message` handler compiles and registers. But `getUpdates` never
+- **A new update type in the handlers requires an edit of `ALLOWED_UPDATES`** (`bot.types.ts`). An
+  `edited_message` or `inline_query` handler compiles and registers. But `getUpdates` never
   returns updates of those types, and the handler is simply never called.
 - **The outbox transformer is installed on `bot.grammy.api` before any update is handled.**
   grammY copies the transformers of `bot.api` into the `Api` of an update when the update comes, so

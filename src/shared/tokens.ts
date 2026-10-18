@@ -103,6 +103,7 @@ export const Tokens = {
             UnknownCommand: Symbol.for("BotMiddlewareUnknownCommand"),
             NotAFile: Symbol.for("BotMiddlewareNotAFile"),
             FileIntake: Symbol.for("BotMiddlewareFileIntake"),
+            Conversion: Symbol.for("BotMiddlewareConversion"),
         },
         SupportedFormats: Symbol.for("BotSupportedFormats"),
         HelpText: Symbol.for("BotHelpText"),

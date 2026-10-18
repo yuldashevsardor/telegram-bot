@@ -211,11 +211,11 @@ describe("InboxPollingSource", function () {
 
         // The list is ALLOWED_UPDATES in bot.types.ts: without it getUpdates would drag in every type the
         // bot does not serve.
-        it("polls only messages", async function () {
+        it("polls only messages and the presses of buttons", async function () {
             source.start();
             await api.waitForGetUpdates(1);
 
-            expect(api.getUpdatesCalls[0]?.params.allowed_updates).to.deep.equal(["message"]);
+            expect(api.getUpdatesCalls[0]?.params.allowed_updates).to.deep.equal(["message", "callback_query"]);
         });
 
         it("makes its Api with a timeout that outlasts the long poll", function () {

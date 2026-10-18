@@ -64,9 +64,10 @@ container.
    locale for each menu: the common one and one per chat of `/bulk_messages`. An update that
    matched no command goes on to step 7.
 7. What no command took: a second call of `Bot.setupMiddlewares()`, below the commands, with
-   `UnknownCommandMiddleware` → `NotAFileMiddleware` → `FileIntakeMiddleware` (see "Commands").
-   This is the last step: a message without content passes all three, and nothing takes it
-   further.
+   `UnknownCommandMiddleware` → `NotAFileMiddleware` → `FileIntakeMiddleware` →
+   `ConversionMiddleware` (see "Commands"). The first three take messages alone, so a press of a
+   button passes them on to the conversion. This is the last step: a message without content and a
+   press of a button that is not a format button pass all four, and nothing takes them further.
 
 One update costs the database:
 
@@ -89,12 +90,21 @@ its group gets an answer, sent from the inbox and not from the pipeline ([`inbox
 gets none either, except for a blocked group: the failures that do not block are seen in the
 `attempts` of the inbox tables only ([`inbox.md`](./inbox.md), "Outcomes").
 
-The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`, `["message"]`.
-Commands and the answers of step 7 in private chats need messages alone. The `getUpdates` default
-would also bring every type the bot does not serve. Each of those costs the network, and one that
-passes the filters also costs the `sessions` read and write, the middleware and a `users` write.
+The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`,
+`["message", "callback_query"]`. Commands and the answers of step 7 in private chats need messages,
+and the conversion needs the presses of the format buttons, which come as `callback_query`. The
+`getUpdates` default would also bring every type the bot does not serve. Each of those costs the
+network, and one that passes the filters also costs the `sessions` read and write, the middleware
+and a `users` write.
 The list names update types, not the contents of a message: a file arrives as the same `message`
 with a `document`, so accepting fonts does not widen the list.
+
+A press carries the message its button stands under, the question of the bot, so `ctx.chat` of a
+press is the chat of that question, and `ctx.from` the person who pressed. The filters of steps 1-2
+and the session key read them as they read those of a message: a press in a private chat goes down
+the pipeline, and one in a group is dropped above the session. A button of a message sent in
+inline mode would come without the message and its chat, but the bot sends none: it answers no
+inline query, `inline_query` is not in the list.
 
 The list is not a security filter, so the filters stay where they are. Telegram applies the list
 on its side, and after the list changes, updates of the old types accumulated before can still
@@ -170,10 +180,11 @@ and of the bot, and the send.
 ## Commands
 
 The texts of `/start`, `/help` and step 7 are those of the customer journey
-([`cjm.md`](../product/cjm.md), steps 1, 2, 5 and 6). Each handler builds its text with `ctx.t()`
+([`cjm.md`](../product/cjm.md), steps 1-6). Each handler builds its text with `ctx.t()`
 ([`i18n.md`](./i18n.md)) and sends it with one `ctx.reply()` through the outbox (see "The outbox
-transformer"). The next message is routed by what it is, not by what the bot said before: the one
-thing they keep in the session is the album `NotAFileMiddleware` answered last (below).
+transformer"); the conversion sends a document instead of a text. The next message is routed by what
+it is, not by what the bot said before: the one thing they keep in the session is the album
+`NotAFileMiddleware` answered last (below).
 
 - `/start` (`StartCommand`) replies with `start-command-welcome`, the list of formats substituted.
   A repeated `/start` gives the same text.
@@ -231,10 +242,41 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
   sets `allow_sending_without_reply`: a document deleted during the check would otherwise fail the
   reply with a 400, which blocks the chat in the outbox. The callback data of a button names the
   target alone, `convert:<extension>` or `convert:all`: a file id does not fit the 64 bytes
-  Telegram allows, so the conversion is to find the source through the message the question
-  replies to. Nothing answers a press yet: `callback_query` is not in `ALLOWED_UPDATES`. The
-  download serves the check alone, so a document that passes the name costs a `getFile` and the
-  download of the whole file.
+  Telegram allows, so the conversion finds the source through the message the question replies to
+  (below). The download serves the check alone, so a document that passes the name costs a
+  `getFile` and the download of the whole file.
+- `ConversionMiddleware` (`middleware/conversion/`) takes a press whose callback data starts with
+  `FormatButtons.CALLBACK_DATA_PREFIX` and passes any other update on. In this order:
+  1. `answerCallbackQuery`, at once, so the client stops its spinner. It names no chat and goes past
+     the outbox. Telegram takes the answer for a short while only and refuses a late one with a 400
+     "query is too old": a press handed out late by the inbox, behind the conversions of the same
+     chat, or handled again after a failure. That refusal is logged as an `info`, and the
+     conversion goes on; any other failure of the answer is thrown on.
+  2. `convert:all` stops here: "Все форматы" converts nothing yet.
+  3. The source: the `reply_to_message` of the question the button stands under, with its
+     `document`. A question whose source was deleted has no reply, and a question older than the
+     Bot API lets a bot read comes as an inaccessible message, without one. Either way, and for a
+     reply that holds no document, the person gets `conversion-middleware-source-unavailable`, a
+     request to send the file again ([`cjm.md`](../product/cjm.md), step 4).
+  4. The pair: the source format by the extension of `file_name`, as the intake took it, and the
+     target among `SupportedFormats.toTargetList()` of that source. Data that names no such pair
+     comes from no button of the bot, or from a question asked before the pair matrix changed: it is
+     logged as a `warning` and gets no answer beyond step 1.
+  5. `sendChatAction` with `upload_document`, through the outbox: the chat shows "отправляет
+     файл…" while the conversion runs.
+  6. `TelegramFileDownloader` downloads the source again, as at the intake (its errors the same),
+     and `FontConvertor` converts it. The downloaded source is removed whatever the outcome, a
+     failed removal logged as a `warning`. A `FontConvertorError`, the conversion failing on our
+     side, is logged as an `error` and answered with `conversion-middleware-failed` in reply to the
+     source; any other error is thrown on to the inbox.
+  7. The result goes with `sendDocument` in reply to the source, without a caption, as a `PathFile`
+     named after the source with the extension of the target (`MyFont.woff` → `MyFont.ttf`); the
+     domain names the file at random. The outbox removes the file once the document is sent
+     ([`outbox.md`](./outbox.md), "Sending"). The replies set `allow_sending_without_reply`, as the
+     question does, for a source deleted during the conversion.
+
+  The buttons stay under the question: nothing removes or edits them, and every press converts
+  anew, from a fresh download.
 
 The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
 (`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in
