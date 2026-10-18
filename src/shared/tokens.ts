@@ -106,6 +106,8 @@ export const Tokens = {
         },
         SupportedFormats: Symbol.for("BotSupportedFormats"),
         HelpText: Symbol.for("BotHelpText"),
+        Fluent: Symbol.for("BotFluent"),
+        FailedUpdateAnswer: Symbol.for("BotFailedUpdateAnswer"),
         Session: {
             Storage: Symbol.for("BotSessionStorage"),
         },

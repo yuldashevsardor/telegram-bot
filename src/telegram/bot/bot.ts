@@ -1,4 +1,3 @@
-import path from "path";
 import type { StorageAdapter } from "grammy";
 import { Bot as TelegramBot, Composer, session } from "grammy";
 import { inject, injectable } from "inversify";
@@ -14,7 +13,7 @@ import type { Filter } from "app/telegram/filter/filter";
 import { InvalidConfigError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
 import type { BotCommand } from "grammy/types";
-import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale";
+import { createFluentMiddleware } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
@@ -30,6 +29,7 @@ export class Bot {
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
         @inject<OutboxTransformer>(Tokens.Bot.Outbox.Transformer) private readonly outboxTransformer: OutboxTransformer,
+        @inject<Fluent>(Tokens.Bot.Fluent) private readonly fluent: Fluent,
         @inject<Filter>(Tokens.Bot.Filter.HasSessionKey) private readonly hasSessionKeyFilter: Filter,
         @inject<Filter>(Tokens.Bot.Filter.IsPrivateChat) private readonly isPrivateChatFilter: Filter,
         @inject<Middleware>(Tokens.Bot.Middleware.RequestContext) private readonly requestContextMiddleware: Middleware,
@@ -71,10 +71,9 @@ export class Bot {
             this.requestLogMiddleware,
             this.fillUserToContextMiddleware,
         ]);
-        // The commands need Fluent too: the same instance translates their descriptions for
-        // setMyCommands.
-        const fluent = await this.setupFlavor();
-        await this.setupCommands(fluent);
+        // Above the commands: they translate with ctx.t.
+        await this.setupFlavor();
+        await this.setupCommands();
         // Below the commands, for what none of them took: an unknown command first, so that it does
         // not get the hint for a text.
         await this.setupMiddlewares([this.unknownCommandMiddleware, this.notAFileMiddleware]);
@@ -106,15 +105,8 @@ export class Bot {
         this.logger.debug("Middlewares successfully setup.");
     }
 
-    private async setupFlavor(): Promise<Fluent> {
-        // From the running code (__dirname), not from rootDir: build/ has its own copies of the
-        // `.ftl`, and a path from cwd would read them from src/, which a deployment does not
-        // have. The walk starts one level above bot/ (docs/architecture/i18n.md).
-        const fluent = await createFluent(path.dirname(__dirname));
-
-        this.grammy.use(createFluentMiddleware(fluent));
-
-        return fluent;
+    private async setupFlavor(): Promise<void> {
+        this.grammy.use(createFluentMiddleware(this.fluent));
     }
 
     private async setupFilters(filters: Filter[]): Promise<void> {
@@ -131,7 +123,7 @@ export class Bot {
         this.logger.debug("Filters successfully setup.");
     }
 
-    private async setupCommands(fluent: Fluent): Promise<void> {
+    private async setupCommands(): Promise<void> {
         this.logger.debug("Setup commands...");
 
         const commands = [this.startCommand, this.helpCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
@@ -144,14 +136,14 @@ export class Bot {
 
         // The set without language_code is the fallback: Telegram shows it to everyone whose
         // language matched none of those set below, so it goes in the default locale.
-        await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, DEFAULT_LOCALE));
+        await this.grammy.api.setMyCommands(this.describeCommands(commands, DEFAULT_LOCALE));
 
         for (const locale of LOCALES) {
             if (locale === DEFAULT_LOCALE) {
                 continue;
             }
 
-            await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, locale), { language_code: locale });
+            await this.grammy.api.setMyCommands(this.describeCommands(commands, locale), { language_code: locale });
         }
 
         this.grammy.use(composer);
@@ -159,8 +151,8 @@ export class Bot {
         this.logger.debug("Commands successfully setup.");
     }
 
-    private describeCommands(commands: Command[], fluent: Fluent, locale: Locale): BotCommand[] {
-        const translate = fluent.withLocale(locale);
+    private describeCommands(commands: Command[], locale: Locale): BotCommand[] {
+        const translate = this.fluent.withLocale(locale);
 
         return commands.map((command) => {
             return {

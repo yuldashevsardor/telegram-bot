@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { inject, injectable } from "inversify";
 import postgres from "postgres";
 import type { PendingQuery, Row, TransactionSql } from "postgres";
+import type { Update } from "@grammyjs/types";
 import type { Database, Sql } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
@@ -281,25 +282,36 @@ export class InboxStore {
     }
 
     // The update fails, and its group is blocked until it is unblocked by hand: the updates behind it
-    // wait, new ones are still pushed.
-    public async markAsFailedAndBlockGroup(lease: InboxLease, attemptError: InboxAttemptError): Promise<void> {
-        const group = await this.complete(lease, attemptError, async (sql, lockedGroup) => {
+    // wait, new ones are still pushed. Returns the failed update with its group, for the answer to its
+    // sender, or null for a fenced completion, which failed nothing.
+    public async markAsFailedAndBlockGroup(lease: InboxLease, attemptError: InboxAttemptError): Promise<InboxUpdateInput | null> {
+        const completion = await this.complete(lease, attemptError, async (sql, lockedGroup) => {
             await this.finishUpdate(sql, lease, InboxStatus.Failed, attemptError);
             await this.setGroupState(sql, lockedGroup, InboxGroupState.Blocked);
+
+            return this.readUpdate(sql, lease.updateId);
         });
 
         // A fenced completion blocked nothing, so it logs no error: its failure is in the warning of
         // complete().
-        if (group === null) {
-            return;
+        if (completion === null) {
+            return null;
         }
 
+        const failedUpdate: InboxUpdateInput = {
+            userId: Number(completion.group.user_id),
+            chatId: Number(completion.group.chat_id),
+            update: completion.written,
+        };
+
         this.logger.error("Inbox group is blocked by a failed update.", {
-            userId: Number(group.user_id),
-            chatId: Number(group.chat_id),
+            userId: failedUpdate.userId,
+            chatId: failedUpdate.chatId,
             updateId: lease.updateId,
             cause: attemptError,
         });
+
+        return failedUpdate;
     }
 
     // Unblocks a group by hand: the failed update that blocked it goes back to pending, and its
@@ -494,13 +506,13 @@ export class InboxStore {
     }
 
     // Every completion: the lock of the group, then the fence, then the writes
-    // (docs/architecture/inbox.md, "Completions"). Returns the group of an applied completion, null
-    // for a fenced one.
-    private async complete(
+    // (docs/architecture/inbox.md, "Completions"). Returns the group of an applied completion with
+    // what its writes gave back, null for a fenced one.
+    private async complete<Written>(
         lease: InboxLease,
         attemptError: InboxAttemptError | null,
-        write: (sql: TransactionSql, group: LockedInboxGroupRow) => Promise<void>,
-    ): Promise<LockedInboxGroupRow | null> {
+        write: (sql: TransactionSql, group: LockedInboxGroupRow) => Promise<Written>,
+    ): Promise<{ group: LockedInboxGroupRow; written: Written } | null> {
         return this.sql.begin(async (sql) => {
             // The lock reads the token of the row it locks in its newest committed version.
             const [group] = await sql<LockedInboxGroupRow[]>`
@@ -539,9 +551,9 @@ export class InboxStore {
                 return null;
             }
 
-            await write(sql, group);
+            const written = await write(sql, group);
 
-            return group;
+            return { group: group, written: written };
         });
     }
 
@@ -587,6 +599,14 @@ export class InboxStore {
         const [update] = await sql`SELECT update_id FROM telegram_inbox WHERE update_id = ${updateId}`;
 
         return update !== undefined;
+    }
+
+    // The update as it was pushed.
+    private async readUpdate(sql: TransactionSql, updateId: number): Promise<Update> {
+        // The completion has just written the row under the lock of its group, so the row is asserted.
+        const [row] = await sql<Pick<ClaimedInboxRow, "update">[]>`SELECT update FROM telegram_inbox WHERE update_id = ${updateId}`;
+
+        return row!.update;
     }
 
     // The final outcome of an update, with the end of its attempt. finished_at is for the cleanup.

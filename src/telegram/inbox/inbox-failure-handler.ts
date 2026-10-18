@@ -8,6 +8,7 @@ import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { ClaimedInboxUpdate, InboxAttemptError, InboxLease } from "app/telegram/inbox/store/inbox-store.types";
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import type { RetryDelay } from "app/telegram/retry-delay/retry-delay";
+import type { FailedUpdateAnswer } from "app/telegram/failed-update-answer/failed-update-answer";
 
 // The error of the attempt an expired lease closes: the node that claimed the update reported nothing.
 const LEASE_EXPIRED: InboxAttemptError = {
@@ -25,6 +26,7 @@ export class InboxFailureHandler {
         @inject<InboxFailureClassifier>(Tokens.Bot.Inbox.FailureClassifier) private readonly classifier: InboxFailureClassifier,
         @inject<RetryDelay>(Tokens.Bot.RetryDelay) private readonly retryDelay: RetryDelay,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
+        @inject<FailedUpdateAnswer>(Tokens.Bot.FailedUpdateAnswer) private readonly failedUpdateAnswer: FailedUpdateAnswer,
         private readonly maxAttempts: number = configValue("inbox.maxAttempts"),
     ) {}
 
@@ -61,7 +63,7 @@ export class InboxFailureHandler {
             case InboxFailureKind.ReplyTimeout:
                 return this.store.markAsFailed(update, attemptError);
             case InboxFailureKind.Unexpected:
-                return this.store.markAsFailedAndBlockGroup(update, attemptError);
+                return this.failAndBlockGroup(update, attemptError);
         }
     }
 
@@ -71,9 +73,23 @@ export class InboxFailureHandler {
         const countedAttempts = lease.earlierAttempts + 1;
 
         if (countedAttempts >= this.maxAttempts) {
-            await this.store.markAsFailedAndBlockGroup(lease, attemptError);
+            await this.failAndBlockGroup(lease, attemptError);
         } else {
             await this.store.retry(lease, attemptError, this.retryDelay.computeMs(countedAttempts));
         }
+    }
+
+    // The sender of an update that blocks its group is answered, once (docs/architecture/inbox.md,
+    // "The answer to the sender"). A failure that does not block is not: an undeliverable chat takes
+    // no message, and the reply a timeout left in the outbox may still go out. A fenced completion
+    // failed nothing: the completion that came first has an outcome of its own.
+    private async failAndBlockGroup(lease: InboxLease, attemptError: InboxAttemptError): Promise<void> {
+        const failedUpdate = await this.store.markAsFailedAndBlockGroup(lease, attemptError);
+
+        if (failedUpdate === null) {
+            return;
+        }
+
+        await this.failedUpdateAnswer.send(failedUpdate.chatId, failedUpdate.update);
     }
 }

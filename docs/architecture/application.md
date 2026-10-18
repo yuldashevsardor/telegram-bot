@@ -179,16 +179,17 @@ There is nothing to restart it with: the container does not survive a second `se
      `ApplicationContextIsNotCreated` falls back to `console.error` ([`logging.md`](./logging.md)).
    - The request scope is not open at start. A middleware opens it on every update
      ([`logging.md`](./logging.md)).
-   - `container.setup()` only binds; the classes are not instantiated yet (above).
+   - `container.setup()` binds; the classes are not instantiated yet (above). It reads the `.ftl`
+     from disk, though, into the one `Fluent` it binds ([`i18n.md`](./i18n.md)), so a broken
+     bundle fails the start here, and `npm run cli`, which sets up the same container, with it.
    - `Database.check()` is the first resolve of `Database`, so its constructor runs here as well
      ([`storage.md`](./storage.md)). Its `SELECT 1` fails the start here and not on the first
      update.
    - `container.get()` for the services of `assemble()`. All the handlers of the pipeline are
      instantiated together with `Bot`, before its constructor ([`bot.md`](./bot.md)).
    - `Bot.setup()` installs the outbox transformer and assembles the pipeline
-     ([`bot.md`](./bot.md)). Along the way it reads the `.ftl` from disk ([`i18n.md`](./i18n.md))
-     and sends a `setMyCommands` over the network for every locale, straight to Telegram: the call
-     has no chat.
+     ([`bot.md`](./bot.md)). Along the way it sends a `setMyCommands` over the network for every
+     locale, straight to Telegram: the call has no chat.
 
    A second `setup()` does not repeat a failed one; it gets the same failure. After a failure
    `fail()` ends the process.

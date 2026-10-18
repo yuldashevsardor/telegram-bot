@@ -448,8 +448,9 @@ describe("InboxStore", function () {
             await store.markAsDone(claimed);
             await store.retry(claimed, TRANSIENT, 0);
             await store.markAsFailed(claimed, UNDELIVERABLE);
-            await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
+            const failedUpdate = await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
 
+            expect(failedUpdate).to.equal(null);
             expect(await statuses()).to.deep.equal([InboxStatus.Processing]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
             expect(await attempts(10)).to.deep.equal([]);
@@ -607,6 +608,12 @@ describe("InboxStore", function () {
                     payload: { userId: USER, chatId: CHAT, updateId: 10, cause: UNEXPECTED },
                 },
             ]);
+        });
+
+        it("gives back the update it failed with its group, for the answer to its sender", async function () {
+            await store.pushBatch([input(10), input(11)]);
+
+            expect(await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED)).to.deep.equal(input(10));
         });
     });
 
@@ -905,8 +912,9 @@ describe("InboxStore", function () {
             await store.deleteIdleGroups();
 
             await store.markAsDone(claimed);
-            await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
+            const failedUpdate = await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
 
+            expect(failedUpdate).to.equal(null);
             expect(await statuses()).to.deep.equal([InboxStatus.Done]);
             expect(logger.warnings).to.deep.equal(
                 [null, UNEXPECTED].map((cause) => ({

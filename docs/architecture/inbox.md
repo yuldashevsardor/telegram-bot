@@ -321,10 +321,11 @@ the worker of the loop: the host, the pid and a `randomUUID()` made with the loo
    asks the generator for the next update.
 2. The loop writes no outcome: the processor does. A `process()` that rejects, or throws
    synchronously, is logged at `error` and frees its slot; its update stays `processing` until the
-   recovery of its lease. A source that throws is logged at `error` and ends the loop: the node
-   takes no more updates until it restarts. A log that throws in either case is dropped: the
-   rejection of a promise nobody awaits would reach `unhandledRejection`, which ends the process
-   (`src/app.ts`).
+   recovery of its lease, unless what threw is the answer to the sender, sent once the completion
+   has committed (see "The answer to the sender"). A source that throws is logged at `error` and
+   ends the loop: the node takes no more updates until it restarts. A log that throws in either
+   case is dropped: the rejection of a promise nobody awaits would reach `unhandledRejection`, which
+   ends the process (`src/app.ts`).
 
 `stop()`:
 
@@ -450,8 +451,9 @@ class, and why, is read off the method, its constants and their comments. In sho
 ### Outcomes
 
 Which completion each class gets is read off `applyOutcome()` and `retryOrBlock()` of the handler.
-Only an `Unexpected` failure and a `Transient` one on its last attempt block the group: after an
-`Undeliverable` or a `ReplyTimeout` failure the next update of the group is handled. A blocked group
+Only an `Unexpected` failure and a `Transient` one on its last attempt block the group, and only
+they answer the sender (see "The answer to the sender"): after an `Undeliverable` or a
+`ReplyTimeout` failure the next update of the group is handled. A blocked group
 is logged at `error` by the store, with the group, the update and the error; a fenced completion
 logs no error. Nothing else is logged: a failure that does not block leaves its error in the
 `attempts` of the update and in no log line, so during an outage of PostgreSQL the retries show
@@ -485,11 +487,12 @@ passed: the node that claimed them is presumed dead. `InboxMaintenance` calls it
    pushed during the lease ([`outbox.md`](./outbox.md), "Lease recovery").
 2. Each lease is a transient failure, completed as one: the update goes back to `pending` with the
    retry delay of its attempt, or, on the last attempt of `INBOX_MAX_ATTEMPTS`, fails and blocks its
-   group. The completion appends an attempt with the error `InboxLeaseExpired` of class `transient`
-   and `worker: null`, and `started_at` of the claim: `updated_at` of the `processing` update,
-   which the claim sets and nothing writes until the completion. Not `locked_until` minus
+   group, which answers the sender as a blocking failure of a handler does (see "The answer to the
+   sender"). The completion appends an attempt with the error `InboxLeaseExpired` of class
+   `transient` and `worker: null`, and `started_at` of the claim: `updated_at` of the `processing`
+   update, which the claim sets and nothing writes until the completion. Not `locked_until` minus
    `INBOX_LEASE_DURATION`, as the outbox derives it: an extension moves `locked_until`. The leases
-   are completed one after another, and a completion that throws ends the call.
+   are completed one after another, and a completion or an answer that throws ends the call.
 
 The recovery completes the update through the same fenced completions as the node that claimed it,
 under the token of that claim, so whichever comes first changes the update and the other one is
@@ -498,6 +501,35 @@ recovery", where the same holds for a second recovery of the lease by another no
 checks the token, not `locked_until`, so a lease that has passed must never be extended
 ([`invariants.md`](./invariants.md), "The inbox"), and `extendLease()` refuses one (see "The
 lease").
+
+### The answer to the sender
+
+An update whose failure blocks its group gets one answer, the last row of step 5 of
+[`cjm.md`](../product/cjm.md): a request to try again later, with the contact of the author. That
+is an `Unexpected` failure and a `Transient` one on the last attempt of `INBOX_MAX_ATTEMPTS`,
+whether the handler threw it or the lease recovery completed it (see "Lease recovery"). An attempt
+that is retried gets none, so the answer goes out once per blocking, not once per attempt. A failure
+that does not block gets none either. An `Undeliverable` chat takes no message. After a
+`ReplyTimeout` the reply of the handler is still in the outbox and may go out yet, and the answer
+would follow it into the same chat; when the chat is blocked in the outbox, it would wait there
+behind the reply.
+
+`InboxFailureHandler` answers after `markAsFailedAndBlockGroup()` has committed. The completion
+gives back the failed update with its group, read in its transaction, or `null` when it is fenced:
+a fenced completion failed nothing, and the completion that came first has an outcome of its own.
+So the recovery, which reads only the lease, gets the update from the completion too.
+
+`FailedUpdateAnswer` (`telegram/failed-update-answer/failed-update-answer.ts`) translates the text
+in the locale of the sender, read as the pipeline reads it: `from` of a grammY `Context`, by the
+rule of [`i18n.md`](./i18n.md). It pushes a `sendMessage` into the outbox with the priority of a
+call and does not wait for it: there is no handler to take the outcome. It lies at `telegram/` and
+not in `inbox/`, because it writes into the outbox.
+
+The answer is not part of the completion. A push that throws after the group is blocked, on a lost
+connection to PostgreSQL for one, loses the answer, and its error goes to whoever called the
+handler: the runner logs it at `error` (see "The runner"), and so does the maintenance for a
+recovery (see "Maintenance"). An update that a group unblocked by hand hands out again and that
+fails again is answered again (see "Unblocking a group").
 
 ### Release on stop
 
