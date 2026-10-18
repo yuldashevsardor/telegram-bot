@@ -578,7 +578,16 @@ of the attempt; the recovery of its lease appends one (see "Lease recovery").
 
 A retried message stays the head of its chat, unless a more urgent message was pushed into the chat
 during its attempt, so its chat waits with it: the messages of its priority behind it are not pulled
-before it, while the other chats are. `retry()` throws `InvalidRetryDelay` on the delays that
+before it, while the other chats are. The delay is that of the chat, `next_attempt_at`, not of the
+message, so a more urgent message that became the head during the attempt waits it out as well: a
+reply pushed while a bulk message of its chat is `processing` waits the retry delay of the bulk
+message after its transient failure, up to `OUTBOX_RETRY_MAX_DELAY` (60 s in `.env.dist`), once,
+and then goes before it. This is an accepted risk. A delay of the message would need the due time
+of the head copied onto the chat row, beside `head_priority`, for the pull and its index, and read
+again by every write that moves the head ([invariant](./invariants.md)); a wait that comes only
+while a message of the chat fails is not worth that. After a 429 of a private chat the wait is
+right as it is: Telegram holds back the chat, and a reply sent sooner would get a 429 as well.
+`retry()` throws `InvalidRetryDelay` on the delays that
 `pause()` refuses (see "Limits"), for the same reasons: an infinite delay would hold the chat for
 ever, and `1e17` ms overflows the interval. It is the contract of the store for any caller. The
 handler passes it the `retry_after` of a 429 of a private chat (see "Outcomes"), which the
