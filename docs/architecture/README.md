@@ -105,16 +105,12 @@ foreign error without details of its own is wrapped by `byError()`: it takes the
 and puts the error itself into `cause`. If a payload is needed as well, the error goes as the
 `cause` field inside it (`UserService.create()`).
 
-The bot commands are in [`bot.md`](./bot.md), "Commands". Two of them are test commands:
-`/font_generator`, a debugging conversion of a fixed file, and `/bulk_messages`, a load tool, not a
-feature, which runs only from its recipient chats. They are needed in development only and are
-removed before going to production. The only requirement on such a command is not to reach
-production. Production standards do not apply to them. These count as a property of a test
-command, not a defect, and need no fixing:
-
-- the tie to the developer's environment: the input font from a test fixture and hardcoded chat
-  IDs;
-- the absence of a permission check in `/font_generator`.
+The bot commands are in [`bot.md`](./bot.md), "Commands". One of them is a test command:
+`/bulk_messages`, a load tool, not a feature, which is shown and runs only in its recipient chats.
+It is needed in development only and is removed before going to production. The only requirement
+on such a command is not to reach production. Production standards do not apply to it. Its tie to
+the developer's environment, the hardcoded chat IDs, counts as a property of a test command, not a
+defect, and needs no fixing.
 
 The relaxation does not cover the tests. As long as the command exists, its spec holds the
 behaviour as it is, that tie included ([`testing.md`](./testing.md), "Mutation testing"). Nor does
@@ -216,8 +212,8 @@ the import path can be guessed from the class name.
 - `command/`, `filter/` and `middleware/` — by `Bot` (`telegram/bot/bot.ts`);
 - `outbox/command/` and `inbox/command/` — by `OutboxCommandResolver` and `InboxCommandResolver`,
   which lie with their commands;
-- the `.ftl` bundles in the `locale/` directories at commands, middleware and `format-buttons/` —
-  by the walk in `createFluent()` (`telegram/locale/locale.ts`).
+- the `.ftl` bundles in the `locale/` directories at commands, middleware, `format-buttons/` and
+  `Bot` — by the walk in `createFluent()` (`telegram/locale/locale.ts`).
 
 The walk looks for files by extension (`FileHelper.findFilesByExtensions()`), not by directory
 name. So it does not confuse the bundle directories with the namesake `telegram/locale/`, which
@@ -233,12 +229,12 @@ the siblings share (`convertor/eot/` — the source format).
 **Stands around one sibling** — a sibling leaves the siblings directory for a directory of its
 own only when it has files of its own or a role of its own among the siblings:
 
-- `command/start/`, `command/help/`, `command/bulk-messages/`, `command/font-generator/`,
-  `middleware/not-a-file/` and `middleware/file-intake/` keep the command or the middleware
-  together with their `locale/` bundles; `command/help/` also keeps `HelpText`, which builds the
-  text of its bundle for the command and for `UnknownCommandMiddleware`, and
-  `middleware/file-intake/` keeps `FontRejectionClassifier`, which sorts the refusals of the
-  validators for the middleware, and `FontRejection`, the classes it sorts them into;
+- `command/start/`, `command/help/`, `command/bulk-messages/`, `middleware/not-a-file/` and
+  `middleware/file-intake/` keep the command or the middleware together with their `locale/`
+  bundles; `command/help/` also keeps `HelpText`, which builds the text of its bundle for the
+  command and for `UnknownCommandMiddleware`, and `middleware/file-intake/` keeps
+  `FontRejectionClassifier`, which sorts the refusals of the validators for the middleware, and
+  `FontRejection`, the classes it sorts them into;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser,
   the range check of the points of an outline and the text codec it shares with `SvgFontPreparer`,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf

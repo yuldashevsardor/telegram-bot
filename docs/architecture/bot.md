@@ -55,10 +55,14 @@ container.
      writes the row back.
    - `FillUserToContextMiddleware` catches no errors. Below it `ctx.getUser()` is filled in
      ([`user.md`](./user.md)).
-5. Fluent ([`i18n.md`](./i18n.md)). Below it `ctx.t` and `ctx.getFluent()` are filled in.
+5. Fluent ([`i18n.md`](./i18n.md)). Below it `ctx.t` and `ctx.getFluent()` are filled in. Right
+   after it `Bot.setupDescriptions()` sets the descriptions of the bot (see "Commands"), which add
+   nothing to the pipeline.
 6. The commands from the list of `Bot.setupCommands()`: `command.setup(composer)` for each, then
-   `api.setMyCommands()` for every locale ([`i18n.md`](./i18n.md)). That is a network call per
-   locale on every start. An update that matched no command goes on to step 7.
+   the menus with `api.setMyCommands()` (see "Commands"). With the descriptions of step 5 that is,
+   on every start and one after another, two calls per locale for the descriptions and one call per
+   locale for each menu: the common one and one per chat of `/bulk_messages`. An update that
+   matched no command goes on to step 7.
 7. What no command took: a second call of `Bot.setupMiddlewares()`, below the commands, with
    `UnknownCommandMiddleware` → `NotAFileMiddleware` → `FileIntakeMiddleware` (see "Commands").
    This is the last step: a message without content passes all three, and nothing takes it
@@ -152,8 +156,9 @@ These calls go straight to Telegram, past the outbox:
 - a payload that is not a plain object: a raw call without arguments (`api.raw.getMe()`) or a
   payload built by a class (the methods of grammY build object literals);
 - a payload without `chat_id`. That covers the service calls of the bot (`getMe`,
-  `setMyCommands`, `getUpdates`, `setWebhook`, ...): none of them names a chat, so no list of
-  them is kept;
+  `setMyCommands`, `getUpdates`, `setWebhook`, ...): none of them has a `chat_id` of its own, so no
+  list of them is kept. The menu of a chat names the chat inside `scope`, which the transformer
+  does not read;
 - a `chat_id` that is not a number, a chat named by its username (`@channel`);
 - the methods of `OutboxTransformer.GROUP_METHODS_PAST_THE_OUTBOX` for a group chat: Telegram
   does not count them towards the limit of the group.
@@ -211,8 +216,9 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
      that a file in its format is broken inside. A font collection named `.ttf` or `.otf` is "not
      in the format" too ([`cjm.md`](../product/cjm.md), step 5), though the validator answers it
      with `BrokenSfnt`. A WOFF or a WOFF2 file of a collection (the flavor `ttcf`) stays "broken":
-     it is in its format, and no row of step 5 fits it (the owner's decision in PR #1012). Any other error is thrown on,
-     and the inbox picks the outcome of the update by it ([`inbox.md`](./inbox.md), "Failures").
+     it is in its format, and no row of step 5 fits it (the owner's decision in PR #1012). Any
+     other error is thrown on, and the inbox picks the outcome of the update by it
+     ([`inbox.md`](./inbox.md), "Failures").
 
   A font that passes gets `file-intake-middleware-question` in reply to its message with the
   buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows. The reply
@@ -224,20 +230,36 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
   download serves the check alone, so a document that passes the name costs a `getFile` and the
   download of the whole file.
 
-The list of formats in all of them comes from `SupportedFormats` (`telegram/supported-formats.ts`):
-`ConvertorFactory.getSupportedExtensions()`, in upper case, in the order of the customer journey
-([`cjm.md`](../product/cjm.md)). The order is a rank per `Extension`, so an extension added to
-the enum without a rank fails the compile. What the user is promised changes with the pair matrix
-([`font-convertor.md`](./font-convertor.md), "The pair table").
+The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
+(`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in
+the order of the customer journey ([`cjm.md`](../product/cjm.md)). The order is a rank per
+`Extension`, so an extension added to the enum without a rank fails the compile. What the user is
+promised changes with the pair matrix ([`font-convertor.md`](./font-convertor.md), "The pair
+table").
 
-`/font_generator` is a debugging conversion of a fixture into four formats
-([`font-convertor.md`](./font-convertor.md)). It costs up to four `fontforge` runs per command,
-and the files stay on disk. The conversions go one after another, with an answer after each. The
-first error cuts off the rest, and the user does not see it.
+`Bot.setupDescriptions()` sets the description, what an empty chat with the bot shows before
+`/start`, and the short description, what its profile and a shared link show (step 0 of the
+customer journey). The texts are `bot-description` with `{formats}` and `{contact}` and
+`bot-short-description` with `{formats}` only, in `telegram/bot/locale/`, sent with
+`setMyDescription` and `setMyShortDescription` per locale as the menu is
+([`i18n.md`](./i18n.md)). Telegram takes up to 512 characters for the description and 120 for the
+short one and answers a longer text with a 400, which fails the start; `bot.spec.ts` checks both
+lengths in every locale.
+
+The menu (step 7 of the customer journey) is published by `Bot.setupCommands()` in two kinds of
+scope. The default scope, the menu of everyone, holds `/start` and `/help`. Each chat of
+`BulkMessagesCommand.chatIds` gets a scope of a chat (`BotCommandScopeChat`) with `/bulk_messages`
+as well. Telegram shows a chat the menu of its most specific scope instead of the common one, not
+on top of it, so the menu of a chat repeats `/start` and `/help`. Telegram takes the scope of a
+chat only from a chat that has opened this bot and answers any other with `400 Bad Request: chat
+not found`: the three chats are the owner's accounts, and each bot of a development slot has its
+own token. On that answer `Bot.publishChatCommands()` logs a `warning` with the chat and leaves the
+chat with the common menu. Any other failure of the call fails the start. The menu only hides a
+command: the handler of `/bulk_messages` is registered for every chat and checks the chat itself.
 
 `/bulk_messages` ([overview](./README.md)) pushes 10 000 `sendMessage` calls of a random text for
-three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone, but runs
-only when sent from one of the three chats: from any other chat `BulkMessagesCommand.handle` returns
+three hardcoded chat IDs, the chats in turn. It is shown in the menu of those chats only (above) and
+runs only when sent from one of them: from any other chat `BulkMessagesCommand.handle` returns
 without pushing or answering. It pushes the calls straight into `OutboxStore.pushBatch()`, past the
 transformer, so that they get `OutboxPriority.Bulk`, and it waits for none of them to be sent. The
 three chats yield to the chats with calls of the bot, and a reply in one of them goes before the

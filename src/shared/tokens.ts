@@ -90,7 +90,6 @@ export const Tokens = {
             Start: Symbol.for("BotCommandStart"),
             Help: Symbol.for("BotCommandHelp"),
             BulkMessages: Symbol.for("BotCommandBulkMessages"),
-            FontGenerator: Symbol.for("BotCommandFontGenerator"),
         },
         Filter: {
             HasSessionKey: Symbol.for("BotFilterHasSessionKey"),
