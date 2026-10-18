@@ -65,7 +65,7 @@ describe("ConfigValuesBuilder", () => {
             maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000, blockedLogIntervalMs: 300000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
-        expect(result.bot).to.deep.equal({ token: "token" });
+        expect(result.bot).to.deep.equal({ token: "token", authorContact: "@y_sardor" });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 20000 });
         expect(result.logger).to.deep.equal({ level: Level.DEBUG });
         expect(result.database).to.deep.equal({
@@ -119,6 +119,7 @@ describe("ConfigValuesBuilder", () => {
             INBOX_SKIPPED_RETENTION: "2592000002",
             INBOX_CLEANUP_BATCH_SIZE: "1002",
             BOT_TOKEN: "own-token",
+            BOT_AUTHOR_CONTACT: "@own_contact",
             GRACEFUL_SHUTDOWN_TIMEOUT: "15001",
             LOGGER_LEVEL: "INFO",
             DATABASE_HOST: "pgsql",
@@ -165,7 +166,7 @@ describe("ConfigValuesBuilder", () => {
             maintenance: { leaseRecoveryIntervalMs: 10004, cleanupIntervalMs: 600004, blockedLogIntervalMs: 300002 },
             cleanup: { doneRetentionMs: 604800002, skippedRetentionMs: 2592000002, batchSize: 1002 },
         });
-        expect(result.bot).to.deep.equal({ token: "own-token" });
+        expect(result.bot).to.deep.equal({ token: "own-token", authorContact: "@own_contact" });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
         expect(result.logger).to.deep.equal({ level: Level.INFO });
         expect(result.database).to.deep.equal({

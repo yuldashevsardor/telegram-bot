@@ -35,7 +35,10 @@ import { Database } from "app/platform/database/database";
 import type { UserRepository } from "app/telegram/user/user-repository";
 import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-user-repository";
 import { UserService } from "app/telegram/user/service/user-service";
-import { StartConversation } from "app/telegram/conversation/start/start.conversation";
+import { HelpCommand } from "app/telegram/command/help/help.command";
+import { UnknownCommandMiddleware } from "app/telegram/middleware/unknown-command.middleware";
+import { NotAFileMiddleware } from "app/telegram/middleware/not-a-file/not-a-file.middleware";
+import { SupportedFormats } from "app/telegram/supported-formats";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
@@ -182,17 +185,20 @@ export class Container extends InversifyContainer {
         this.bind<ResponseTimeMiddleware>(Tokens.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
         this.bind<RequestLogMiddleware>(Tokens.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
         this.bind<FillUserToContextMiddleware>(Tokens.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
+        this.bind<UnknownCommandMiddleware>(Tokens.Bot.Middleware.UnknownCommand).to(UnknownCommandMiddleware).inSingletonScope();
+        this.bind<NotAFileMiddleware>(Tokens.Bot.Middleware.NotAFile).to(NotAFileMiddleware).inSingletonScope();
 
         // Commands
         this.bind<StartCommand>(Tokens.Bot.Command.Start).to(StartCommand).inSingletonScope();
+        this.bind<HelpCommand>(Tokens.Bot.Command.Help).to(HelpCommand).inSingletonScope();
         this.bind<BulkMessagesCommand>(Tokens.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();
         this.bind<FontGeneratorCommand>(Tokens.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
 
         // Session
         this.bind<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage).to(PgsqlStorage).inSingletonScope();
 
-        // Conversations
-        this.bind<StartConversation>(Tokens.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
+        // What the texts of the bot share
+        this.bind<SupportedFormats>(Tokens.Bot.SupportedFormats).to(SupportedFormats).inSingletonScope();
     }
 
     private async setupPlatform(): Promise<void> {

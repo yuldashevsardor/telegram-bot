@@ -126,6 +126,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
             bot: {
                 token: parser.getString("BOT_TOKEN"),
+                authorContact: parser.getString("BOT_AUTHOR_CONTACT", "@y_sardor"),
             },
 
             gracefulShutdown: {

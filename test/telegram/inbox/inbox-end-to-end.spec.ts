@@ -5,7 +5,6 @@ import type { RawApi, StorageAdapter, Transformer } from "grammy";
 import type { ApiResponse, Document, Message, MessageEntity, Update, UserFromGetMe } from "@grammyjs/types";
 import { Container } from "app/bootstrap/container/container";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
-import type { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import type { Database } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import { sleep } from "app/shared/utils";
@@ -17,6 +16,7 @@ import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-sto
 import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
+import type { SupportedFormats } from "app/telegram/supported-formats";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 import { testDatabaseName } from "test/database.helper";
@@ -34,8 +34,10 @@ const SECOND_USER = 5_000_000_002;
 const MAX_ATTEMPTS = 3;
 // What the spec sets in the config of the application; the rest is its defaults and the database of
 // the run.
+const AUTHOR_CONTACT = "@author";
 const CONFIG = {
     BOT_TOKEN: TOKEN,
+    BOT_AUTHOR_CONTACT: AUTHOR_CONTACT,
     INBOX_MAX_ATTEMPTS: String(MAX_ATTEMPTS),
     // The retry delay of a millisecond: a retried update is claimed again at the next claim.
     OUTBOX_RETRY_FIRST_DELAY: "1",
@@ -190,7 +192,8 @@ describe("Inbox end to end on the database", function () {
     // What the Bot API calls of the bot resolved to, ctx.reply() of the handlers included.
     let answers: BotApiAnswer[];
     let welcomeReply: string;
-    let notTextReply: string;
+    let helpReply: string;
+    let notAFileReply: string;
     // What afterEach undoes, in the reverse order: only what this beforeEach got to start, so a failed
     // one neither leaves the new objects open nor stops those of the previous test again.
     let cleanups: (() => Promise<void> | void)[] = [];
@@ -226,7 +229,7 @@ describe("Inbox end to end on the database", function () {
         answers = [];
         bot.grammy.api.config.use(recordAnswers(answers));
         fakeBotApi.calls.length = 0;
-        ({ welcomeReply, notTextReply } = await expectedReplies());
+        ({ welcomeReply, helpReply, notAFileReply } = await expectedReplies());
 
         store = container.get<InboxStore>(Tokens.Bot.Inbox.Store);
         outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
@@ -259,15 +262,16 @@ describe("Inbox end to end on the database", function () {
         }
     });
 
-    it("answers a command and a document with the calls the handlers make, and ctx.reply() resolves to the sent message", async function () {
-        await store.pushBatch([commandInput(1, FIRST_USER, "/start"), documentInput(2, FIRST_USER)]);
+    // The document is handled and left without an answer: no handler takes a file yet.
+    it("answers a command and a text with the calls the handlers make, and ctx.reply() resolves to the sent message", async function () {
+        await store.pushBatch([commandInput(1, FIRST_USER, "/start"), textInput(2, FIRST_USER, "font"), documentInput(3, FIRST_USER)]);
 
-        await waitUntilDone([1, 2]);
+        await waitUntilDone([1, 2, 3]);
 
         expect(fakeBotApi.calls.map((call) => ({ method: call.method, payload: call.payload }))).to.deep.equal([
             { method: "getMe", payload: {} },
             { method: "sendMessage", payload: { chat_id: FIRST_USER, text: welcomeReply } },
-            { method: "sendMessage", payload: { chat_id: FIRST_USER, text: notTextReply } },
+            { method: "sendMessage", payload: { chat_id: FIRST_USER, text: notAFileReply } },
         ]);
         const replies = answers.filter((answer) => answer.method === "sendMessage").map((answer) => answer.result);
         expect(replies).to.deep.equal(telegram.sentMessages);
@@ -279,13 +283,12 @@ describe("Inbox end to end on the database", function () {
         await store.pushBatch([
             commandInput(1, FIRST_USER, "/start"),
             textInput(2, FIRST_USER, "first"),
-            commandInput(3, FIRST_USER, "/start"),
-            textInput(4, FIRST_USER, "second"),
+            commandInput(3, FIRST_USER, "/help"),
         ]);
 
-        await waitUntilDone([1, 2, 3, 4]);
+        await waitUntilDone([1, 2, 3]);
 
-        expect(sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, "first", welcomeReply, "second"]);
+        expect(sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, notAFileReply, helpReply]);
         expectNoProblemLogs();
     });
 
@@ -338,7 +341,7 @@ describe("Inbox end to end on the database", function () {
         expect(failed?.attempts.map(({ error }) => error?.["kind"])).to.deep.equal(Array(MAX_ATTEMPTS).fill("transient"));
         expect(behind?.status).to.equal(InboxStatus.Pending);
         expect(sendsTo(FIRST_USER)).to.deep.equal([]);
-        expect(sendsTo(SECOND_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, "after the block"]);
+        expect(sendsTo(SECOND_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, notAFileReply]);
         expect(logger.errors.map((record) => record.message)).to.deep.equal(["Inbox group is blocked by a failed update."]);
         expect([...logger.criticals, ...logger.warnings]).to.deep.equal([]);
     });
@@ -355,13 +358,14 @@ describe("Inbox end to end on the database", function () {
 
     // The texts the handlers reply with, translated as the bot translates them for a user without a
     // language.
-    async function expectedReplies(): Promise<{ welcomeReply: string; notTextReply: string }> {
+    async function expectedReplies(): Promise<{ welcomeReply: string; helpReply: string; notAFileReply: string }> {
         const translate = (await createFluent(path.resolve(__dirname, "../../../src/telegram"))).withLocale(DEFAULT_LOCALE);
-        const formats = container.get<ConvertorFactory>(Tokens.Font.Convertor.Factory).getSupportedExtensions().join(", ");
+        const formats = container.get<SupportedFormats>(Tokens.Bot.SupportedFormats).toText();
 
         return {
-            welcomeReply: translate("start-conversation-welcome", { formats: formats }),
-            notTextReply: translate("start-conversation-not-text"),
+            welcomeReply: translate("start-command-welcome", { formats: formats }),
+            helpReply: translate("help-command-text", { formats: formats, contact: AUTHOR_CONTACT }),
+            notAFileReply: translate("not-a-file-middleware-hint", { formats: formats }),
         };
     }
 

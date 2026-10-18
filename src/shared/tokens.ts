@@ -88,6 +88,7 @@ export const Tokens = {
         },
         Command: {
             Start: Symbol.for("BotCommandStart"),
+            Help: Symbol.for("BotCommandHelp"),
             BulkMessages: Symbol.for("BotCommandBulkMessages"),
             FontGenerator: Symbol.for("BotCommandFontGenerator"),
         },
@@ -100,10 +101,10 @@ export const Tokens = {
             ResponseTime: Symbol.for("BotMiddlewareResponseTime"),
             RequestLog: Symbol.for("BotMiddlewareRequestLog"),
             FillUserToContext: Symbol.for("BotMiddlewareFillUserToContext"),
+            UnknownCommand: Symbol.for("BotMiddlewareUnknownCommand"),
+            NotAFile: Symbol.for("BotMiddlewareNotAFile"),
         },
-        Conversations: {
-            Start: Symbol.for("BotConversationsStart"),
-        },
+        SupportedFormats: Symbol.for("BotSupportedFormats"),
         Session: {
             Storage: Symbol.for("BotSessionStorage"),
         },

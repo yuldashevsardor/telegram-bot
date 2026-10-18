@@ -38,10 +38,12 @@ export class Bot {
         @inject<Middleware>(Tokens.Bot.Middleware.ResponseTime) private readonly responseTimeMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.RequestLog) private readonly requestLogMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.FillUserToContext) private readonly fillUserToContextMiddleware: Middleware,
-        @inject<ConversationHandler>(Tokens.Bot.Conversations.Start) private readonly startConversation: ConversationHandler,
         @inject<Command>(Tokens.Bot.Command.Start) private readonly startCommand: Command,
+        @inject<Command>(Tokens.Bot.Command.Help) private readonly helpCommand: Command,
         @inject<Command>(Tokens.Bot.Command.BulkMessages) private readonly bulkMessagesCommand: Command,
         @inject<Command>(Tokens.Bot.Command.FontGenerator) private readonly fontGeneratorCommand: Command,
+        @inject<Middleware>(Tokens.Bot.Middleware.UnknownCommand) private readonly unknownCommandMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.NotAFile) private readonly notAFileMiddleware: Middleware,
         private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
@@ -71,6 +73,7 @@ export class Bot {
         const fluent = await this.setupFlavor();
         await this.setupConversations();
         await this.setupCommands(fluent);
+        await this.setupUnmatched();
 
         this.isSetup = true;
     }
@@ -133,7 +136,8 @@ export class Bot {
     private async setupConversations(): Promise<void> {
         this.logger.debug("Setup conversations...");
 
-        const conversationHandlers = [this.startConversation];
+        // None is left since /start became a plain reply; the plugin stays for the next one.
+        const conversationHandlers: ConversationHandler[] = [];
 
         this.grammy.use(conversations());
 
@@ -147,7 +151,7 @@ export class Bot {
     private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
-        const commands = [this.startCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
+        const commands = [this.startCommand, this.helpCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
 
         const composer = new Composer<Context>();
 
@@ -170,6 +174,22 @@ export class Bot {
         this.grammy.use(composer);
 
         this.logger.debug("Commands successfully setup.");
+    }
+
+    // What no command took: an unknown command first, so that it does not get the hint for a text.
+    private async setupUnmatched(): Promise<void> {
+        this.logger.debug("Setup unmatched...");
+
+        const composer = new Composer<Context>();
+        const middlewares = [this.unknownCommandMiddleware, this.notAFileMiddleware];
+
+        for (const middleware of middlewares) {
+            middleware.setup(composer);
+        }
+
+        this.grammy.use(composer);
+
+        this.logger.debug("Unmatched successfully setup.");
     }
 
     private describeCommands(commands: Command[], fluent: Fluent, locale: Locale): BotCommand[] {
