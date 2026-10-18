@@ -1125,6 +1125,7 @@ STRYKER_WITH_LISTS = (
     "export default {\n"
     "    mutate: [\n"
     "        ...base,\n"
+    "        ...area,\n"
     '        "!src/**/*.ftl",\n'
     '        "!src/dir/**",\n'
     '        "!src/gone.ts",\n'
@@ -1427,6 +1428,7 @@ class BatchFilesTest(unittest.TestCase):
             ('    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "test/new.spec.ts",\n'),
             ('    "src/c.ts",\n', '    "src/c.ts",\n    "src/b.ts",\n'),
             ('        "!src/dir/**",\n', '        "!src/dir/**",\n        "!src/a.ts",\n'),
+            ('        "!src/dir/**",\n', '        "!src/dir/**",\n        "!src/a.ts", // why\n'),
         ):
             github = self.config_pr(STRYKER_WITH_LISTS.replace(*added))
 
@@ -1446,6 +1448,8 @@ class BatchFilesTest(unittest.TestCase):
             ('["clear-text"]', '["clear-text", "json"]'),
             ('    "src/c.ts",\n', '    "src/c.ts",\n    // Stryker disable next-line all\n'),
             ("];\nexport", "];\nconst MORE = [\n    \"src/b.ts\",\n];\nexport"),
+            # Stryker applies `mutate` in order: a `!` above `...area` leaves the area in.
+            ("        ...area,\n", '        "!src/a.ts",\n        ...area,\n'),
         ):
             github = self.config_pr(STRYKER_WITH_LISTS.replace(*changed))
 
@@ -1484,14 +1488,26 @@ class BatchFilesTest(unittest.TestCase):
         self.assertEqual((code, lines), (0, ["src/b.ts"]))
         self.assertNotIn("no longer excluded", err)
 
-    def test_a_removed_glob_past_stars_and_question_marks_takes_the_full_run(self):
-        github = self.config_pr(STRYKER_WITH_LISTS.replace('        "!src/{a,b}.ts",\n', ""))
+    def test_a_changed_glob_past_stars_and_question_marks_takes_the_full_run(self):
+        for config, glob in (
+            (STRYKER_WITH_LISTS.replace('        "!src/{a,b}.ts",\n', ""), "src/{a,b}.ts"),
+            (
+                STRYKER_WITH_LISTS.replace(
+                    '    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "test/{a,c}.spec.ts",\n'
+                ),
+                "test/{a,c}.spec.ts",
+            ),
+        ):
+            github = self.config_pr(config)
 
-        code, lines, err = self.files(github)
+            code, lines, err = self.files(github)
 
-        self.assertEqual((code, lines), (0, []))
-        self.assertIn("PR #801: no longer excluded, a glob not read: src/{a,b}.ts\n", err)
-        self.assertIn("full run: PR #801 changed stryker.config.mjs", err)
+            self.assertEqual((code, lines), (0, []), glob)
+            self.assertIn(
+                "PR #801: stryker.config.mjs changes an exclusion not read: {}\n".format(glob), err
+            )
+            self.assertNotIn("exclusion lists alone", err)
+            self.assertIn("full run: PR #801 changed stryker.config.mjs", err)
 
     def test_a_spec_excluded_anew_runs_the_sources_it_imports(self):
         github = self.config_pr(
@@ -1505,6 +1521,20 @@ class BatchFilesTest(unittest.TestCase):
         self.assertEqual((code, lines), (0, ["src/b.ts src/c.ts"]))
         self.assertIn("PR #801: excluded anew: test/c.spec.ts\n", err)
         self.assertIn("PR #801: test/c.spec.ts -> src/c.ts\n", err)
+
+    def test_a_spec_glob_excluded_anew_runs_the_sources_of_the_specs_it_matches(self):
+        github = self.config_pr(
+            STRYKER_WITH_LISTS.replace(
+                '    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "test/*.spec.ts",\n'
+            )
+        )
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/a.ts src/b.ts src/c.ts"]))
+        self.assertIn("PR #801: excluded anew: test/a.spec.ts\n", err)
+        self.assertIn("PR #801: excluded anew: test/c.spec.ts\n", err)
+        self.assertNotIn("excluded anew: test/helper.ts", err)
 
     def test_a_new_spec_excluded_by_its_pr_is_in_the_batch_by_itself(self):
         github = self.config_pr(

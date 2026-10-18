@@ -200,7 +200,8 @@ the author nor the reviewer runs `make mutation`. The issue the PR closes is rec
 instead, and once per batch `make mutation batch=<N>` runs on fresh `main` over the files its PRs
 changed in code, a spec standing for the files of `src/` it and its helpers import. A PR of the
 batch that changed a tool of the run, as the `mutation-full` row of the table names them, sends the
-batch to the whole of `src/`. The author records the issue after the PR is created
+batch to the whole of `src/`; a change of the exclusion lists of `stryker.config.mjs` alone does not
+(below). The author records the issue after the PR is created
 (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
 (`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red, and so is
 a PR that closes no issue and has no record of its own. How a batch is kept and how its files are
@@ -219,17 +220,21 @@ cost: `container.ts`, `tokens.ts` and a file whose spec helper changed under it 
 when a recorded PR changed them in code.
 
 A change of `stryker.config.mjs` that only adds or removes entries of its exclusion lists
-(`DATABASE_SPECS`, `DATABASE_ONLY_SOURCES`, the `!` globs of `mutate`) still turns the gate on, but
-does not send the batch to the whole of `src/`. Such an entry says which files and specs the run
-leaves out, not how a mutant is made or killed. A spec written into `DATABASE_SPECS` usually comes
-in the PR that brings it and is in the batch as a changed `.ts`; one that was there before the PR
-leaves the run like a deleted spec, and the batch runs over the files of `src/` it imports. A
-removed source exclusion returns its files to the run, and the batch runs over the `.ts` of `src/`
-it matched; a spec removed from `DATABASE_SPECS` only adds tests. Every other change of the file, a
-new field included, sends the batch to the whole of `src/`: the allowed shapes are listed, not the
-critical fields, so a field nobody thought of counts as critical. The other tools of the row go by
-the old rule: every line of code in them decides how mutants run. The owner (2026-10-18) chose this
-after batch #819, which five such one-line additions sent to the full run of about 7.5 hours.
+(`DATABASE_SPECS`, `DATABASE_ONLY_SOURCES`, the `!` globs of `mutate` below `...area`) still turns
+the gate on, but does not send the batch to the whole of `src/`. Such an entry says which files and
+specs the run leaves out, not how a mutant is made or killed. An entry is read as a glob: `mutate`
+and the `ignore` of mocha that `DATABASE_SPECS` goes to both take globs. An entry new in
+`DATABASE_SPECS` usually names a spec its own PR brings, which is in the batch as a changed `.ts`; a
+spec that was there before the PR leaves the run like a deleted one, and the batch runs over the
+files of `src/` it imports. A removed source exclusion returns its files to the run, and the batch
+runs over the `.ts` of `src/` it matched; a spec removed from `DATABASE_SPECS` only adds tests. A
+changed entry past `*`, `**` and `?` (braces, a class, a line range) is not read and sends the batch
+to the whole of `src/`, and so does a `!` above `...area`: Stryker applies `mutate` in order, and
+such an entry leaves the area in. Every other change of the file, a new field included, sends the
+batch to the whole of `src/`: the allowed shapes are listed, not the critical fields, so a field
+nobody thought of counts as critical. The other tools of the row go by the old rule: every line of
+code in them decides how mutants run. The owner (2026-10-18) chose this after batch #819, which five
+such one-line additions sent to the full run of about 7.5 hours.
 
 The accepted cost of the batch itself: a weak test is found only by the batch run, possibly weeks
 after the PR that brought it, and its survivors are fixed by the session of the batch, not by the
