@@ -65,6 +65,10 @@ export class TelegramBotApiFailureClassifier {
             return { kind: TelegramBotApiFailureKind.Undeliverable };
         }
 
+        if (error.error_code === httpStatus.HTTP_STATUS_PAYLOAD_TOO_LARGE) {
+            return { kind: TelegramBotApiFailureKind.TooLarge };
+        }
+
         if (error.error_code === httpStatus.HTTP_STATUS_UNAUTHORIZED) {
             return { kind: TelegramBotApiFailureKind.Unauthorized };
         }

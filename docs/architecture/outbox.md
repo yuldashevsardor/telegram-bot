@@ -858,10 +858,10 @@ The decisions that need no database are classes without SQL, so mutation testing
 `TelegramBotApiFailureClassifier.classify(error)`
 (`telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.ts`) sorts a failed Bot
 API call into the `TelegramBotApiFailureKind` values: the four classes of the epic
-([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes") and
-`Unauthorized`, which the epic does not have. Which error falls into which class is read off the
-branches of the method. What the code does not say is why the boundaries are drawn where they are,
-and why one failure is not classified at all:
+([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes"),
+`Unauthorized` and `TooLarge`, which the epic does not have. Which error falls into which class is
+read off the branches of the method. What the code does not say is why the boundaries are drawn
+where they are, and why one failure is not classified at all:
 
 - Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
   bot this chat, and a retry does not change that.
@@ -870,6 +870,14 @@ and why one failure is not classified at all:
   chat. A description Telegram rewords falls to `Unexpected` and blocks the chat: the safe side. A
   group upgraded to a supergroup takes no messages under its old id, and the message is not resent
   to the new one.
+- A 413 is `TooLarge`: the body of the request is over the limit of the Bot API
+  ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"), and a retry of the same
+  call gets the same 413. It fails the message without blocking the chat: the chat is reachable,
+  and as `Unexpected` it would make every later message to the person wait for someone to skip a
+  message that can never go. A caller that uploads files keeps under the limit, as the conversion
+  does (`BOT_MAX_UPLOAD_SIZE`, [`bot.md`](./bot.md), "Commands"), so a 413 is a bug of ours all the
+  same: the setting no longer matches the server, or a call uploads files without the check. No
+  blocked chat shows it, so the handler logs it as an error itself (`failTooLarge()`).
 - A 401 is `Unauthorized`: the token has been revoked, and every call of the bot fails the same way
   until the process is restarted with a new one. As `Unexpected` it would block every chat the
   outbox tries, each to be unblocked by hand, so the outbox pauses instead (see "Outcomes"). A 404

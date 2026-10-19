@@ -6,6 +6,9 @@ export enum TelegramBotApiFailureKind {
     Flood = "flood",
     // The chat cannot get the message at all: a retry would fail the same way.
     Undeliverable = "undeliverable",
+    // A 413: the body of the request is over the limit of the Bot API. A retry of the same call gets
+    // the same answer, while the chat still takes other messages.
+    TooLarge = "too_large",
     // A 401: Telegram does not know the token, revoked in BotFather. Every call of the bot fails the
     // same way until the process is restarted with a new one.
     Unauthorized = "unauthorized",

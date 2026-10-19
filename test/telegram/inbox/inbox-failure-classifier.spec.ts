@@ -37,6 +37,12 @@ describe("InboxFailureClassifier", function () {
             expect(classifier.classify(telegramError(400, "Bad Request: chat not found"))).to.equal(InboxFailureKind.Undeliverable);
         });
 
+        // A retry would send the same request again, and the next update of the group must not wait
+        // behind it.
+        it("takes a request over the upload limit for undeliverable", function () {
+            expect(classifier.classify(telegramError(413, "Request Entity Too Large"))).to.equal(InboxFailureKind.Undeliverable);
+        });
+
         it("takes a malformed call and a file that is gone for unexpected", function () {
             const missingFile = Object.assign(new Error("ENOENT: no such file or directory, open '/fonts/a.ttf'"), {
                 code: "ENOENT",

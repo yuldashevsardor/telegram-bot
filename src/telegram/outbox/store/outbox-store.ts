@@ -493,12 +493,15 @@ export class OutboxStore {
         });
     }
 
-    // The message cannot be delivered, and its chat goes on to its next message.
-    public async markAsFailed(lease: OutboxLease, attemptError: OutboxAttemptError): Promise<void> {
-        await this.complete(lease, attemptError, async (sql, chatId) => {
+    // The message cannot be delivered, and its chat goes on to its next message. Returns whether the
+    // message is failed by this completion: false for a fenced one, as in markAsDone().
+    public async markAsFailed(lease: OutboxLease, attemptError: OutboxAttemptError): Promise<boolean> {
+        const chatId = await this.complete(lease, attemptError, async (sql, lockedChatId) => {
             await this.finishMessage(sql, lease, { status: OutboxStatus.Failed, attemptError: attemptError, response: null });
-            await this.releaseChat(sql, chatId);
+            await this.releaseChat(sql, lockedChatId);
         });
+
+        return chatId !== null;
     }
 
     // The message fails, and its chat is blocked until it is unblocked by hand: the messages behind

@@ -86,9 +86,11 @@ stops both ([`application.md`](./application.md)). `handleUpdate()` wraps an err
 into a `BotError` and throws it on, so no `bot.catch()` is set: the inbox picks the outcome of the
 update by the class of the error ([`inbox.md`](./inbox.md), "Failures"). Only an update that blocks
 its group gets an answer, sent from the inbox and not from the pipeline ([`inbox.md`](./inbox.md),
-"The answer to the sender"); a failure that does not block shows the user no sign of itself. The log
-gets none either, except for a blocked group: the failures that do not block are seen in the
-`attempts` of the inbox tables only ([`inbox.md`](./inbox.md), "Outcomes").
+"The answer to the sender"); a failure that does not block shows the user no sign of itself. The
+inbox logs none either, except for a blocked group: the failures that do not block are seen in the
+`attempts` of the inbox tables, and a 413 of a call queued in the outbox also in the error the
+outbox logs for it ([`inbox.md`](./inbox.md), "Outcomes"; [`outbox.md`](./outbox.md), "Error
+classes").
 
 The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`,
 `["message", "callback_query"]`. Commands and the answers of step 7 in private chats need messages,
@@ -270,10 +272,10 @@ session is the album `NotAFileMiddleware` answered last (below).
      targets still go. Any other error is thrown on to the inbox, and the results already made are
      removed: the inbox handles the update anew.
   6. Telegram limits the body of a request, `BOT_MAX_UPLOAD_SIZE`, and refuses one over it with a
-     413, an `Unexpected` failure that blocks the chat in the outbox
-     ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"). A result over the
-     limit less a margin for the multipart, `REQUEST_OVERHEAD_MARGIN_BYTES`, is removed, logged as a
-     `warning` and not sent.
+     413 ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"), which fails the
+     call and takes every file of an album with it ([`outbox.md`](./outbox.md), "Error classes").
+     A result over the limit less a margin for the multipart, `REQUEST_OVERHEAD_MARGIN_BYTES`, is
+     removed, logged as a `warning` and not sent.
   7. Each result is a `PathFile` named after the source with the extension of its target
      (`MyFont.woff` → `MyFont.ttf`); the domain names the file at random. The results go in the
      order of the buttons, as many to a call as fit under the same limit: two and more with

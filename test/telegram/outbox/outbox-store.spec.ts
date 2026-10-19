@@ -1006,7 +1006,7 @@ describe("OutboxStore", function () {
 
             expect(await store.markAsDone(pulled, RESPONSE)).to.equal(false);
             await store.retry(pulled, TRANSIENT, 0);
-            await store.markAsFailed(pulled, UNDELIVERABLE);
+            expect(await store.markAsFailed(pulled, UNDELIVERABLE)).to.equal(false);
             await store.markAsFailedAndBlockChat(pulled, UNEXPECTED);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
@@ -1325,7 +1325,7 @@ describe("OutboxStore", function () {
             const [, behind] = await store.pushBatch([message(CHAT, "undeliverable"), message(CHAT, "behind")]);
             const pulled = await pullOne();
 
-            await store.markAsFailed(pulled, UNDELIVERABLE);
+            expect(await store.markAsFailed(pulled, UNDELIVERABLE)).to.equal(true);
 
             const [attempt] = await attempts(pulled.id);
 

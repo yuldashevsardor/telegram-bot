@@ -240,10 +240,10 @@ export class ConversionMiddleware extends Middleware {
         }
     }
 
-    // Telegram refuses a request whose body is over its limit with a 413, which blocks the chat in the
-    // outbox, and an album goes in one request: one file too many takes the others with it. A font far
-    // under the download limit can still give a result over it: an SVG grows several times over a
-    // compact source.
+    // Telegram refuses a request whose body is over its limit with a 413, which fails the call, and an
+    // album goes in one request: one file too many takes the others with it. A font far under the
+    // download limit can still give a result over it: an SVG grows several times over a compact
+    // source.
     private maxRequestFilesBytes(): number {
         return this.maxUploadSizeMb * ConversionMiddleware.BYTES_PER_MB - ConversionMiddleware.REQUEST_OVERHEAD_MARGIN_BYTES;
     }

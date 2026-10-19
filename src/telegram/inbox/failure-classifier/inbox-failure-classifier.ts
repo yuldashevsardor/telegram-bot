@@ -102,7 +102,8 @@ export class InboxFailureClassifier {
     }
 
     // A flood and a revoked token are transient here: one that reaches a handler came from a call
-    // that bypassed the outbox, and the update can be handled once it is over
+    // that bypassed the outbox, and the update can be handled once it is over. A request over the
+    // upload limit is undeliverable: a retry would send it again into the same 413
     // (docs/architecture/inbox.md, "Error classes").
     private byBotApiFailure(kind: TelegramBotApiFailureKind): InboxFailureKind {
         switch (kind) {
@@ -111,6 +112,7 @@ export class InboxFailureClassifier {
             case TelegramBotApiFailureKind.Unauthorized:
                 return InboxFailureKind.Transient;
             case TelegramBotApiFailureKind.Undeliverable:
+            case TelegramBotApiFailureKind.TooLarge:
                 return InboxFailureKind.Undeliverable;
             case TelegramBotApiFailureKind.Unexpected:
                 return InboxFailureKind.Unexpected;
