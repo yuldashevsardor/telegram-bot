@@ -2,7 +2,8 @@
 
 The outbox and the inbox run against the real Telegram: one run of `/bulk_messages` on a development
 bot, on 2026-10-11, watched by its logs, and a shorter rerun of its 429s on 2026-10-16 (see "The
-rerun of a 429"). The load tests of the stores
+rerun of a 429"), then albums against the window of a private chat on 2026-10-19, sent past the bot
+(see "Albums and the window"). The load tests of the stores
 ([`outbox-load-test.md`](./outbox-load-test.md), [`inbox-load-test.md`](./inbox-load-test.md))
 measure the SQL on large tables, and the end-to-end specs replace Telegram with a fake server
 ([`outbox.md`](./outbox.md), "The end-to-end spec"); this run measures what neither does: the limits
@@ -98,6 +99,29 @@ and its messages left `pending` were deleted. The numbers are read from the `att
   and after a 429 from the end of the previous one. The count held as well: the 429 came on the
   101st call of a chat. After its resume chat 5067823410 sent 99 and lost one call to the restart,
   so its 429 was the 101st only if that call had reached Telegram, which the outbox cannot tell.
+
+## Albums and the window
+
+On 2026-10-19 a script called the Bot API itself, past the bot and the outbox, with the bot token of
+a worktree's slot, into one private chat of the owner, and deleted every message it sent after
+each run (issue [#1022](https://github.com/yuldashevsardor/telegram-bot/issues/1022)). The script
+is not kept: what it sent is below. The question was whether Telegram counts each item of an album
+towards the window of a private chat, or the album as one message.
+
+| run | sent | 429 |
+|---|---|---|
+| 1, 10:04 – 10:08 | 15 `sendMediaGroup` of 10 documents of some 20 bytes, one every 2 s or so, then 200 `sendMessage` of "probe message N", 1.1 s apart on average | none: 350 messages in 4.4 minutes |
+| 2, calibration, from 10:14:12 | `sendMessage` of 1 000 random characters, 3 a second | on the 101st, at 10:15:32, `retry_after` 222 s |
+| 2, from 10:19:19, after the `retry_after` | 15 `sendMediaGroup` of 10 documents of 1 000 random characters, one every 3.3 s, then `sendMessage` as in the calibration | none to the 150 documents; on the 101st text after them, at 10:21:12, `retry_after` 238 s |
+
+- The calibration repeats the count of "The private chat limit of Telegram": 100 texts, then a 429.
+- After the albums the window took 100 texts more, and its `retry_after` ran out some 300 s after
+  the first of those texts, not after the first album: the 150 documents opened no window and
+  counted in none, neither as 150 messages nor as 15.
+- Run 1 sent 350 messages in under 5 minutes without a 429: short texts did not reach the count
+  either. So the count of some 100 messages holds for the long texts of the runs, and what else
+  Telegram counts, or does not, is not measured: an album of photos, a document sent alone, a reply
+  of the bot.
 
 ## A reply behind the bulk messages
 
