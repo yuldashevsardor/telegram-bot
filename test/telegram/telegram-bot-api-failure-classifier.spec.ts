@@ -179,6 +179,12 @@ describe("TelegramBotApiFailureClassifier", function () {
         });
     });
 
+    it("takes a 413 for too large", function () {
+        expect(classifier.classify(telegramError(413, "Request Entity Too Large"))).to.deep.equal({
+            kind: TelegramBotApiFailureKind.TooLarge,
+        });
+    });
+
     it("takes a 401 for unauthorized", function () {
         expect(classifier.classify(telegramError(401, "Unauthorized"))).to.deep.equal({
             kind: TelegramBotApiFailureKind.Unauthorized,

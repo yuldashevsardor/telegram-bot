@@ -270,10 +270,10 @@ session is the album `NotAFileMiddleware` answered last (below).
      targets still go. Any other error is thrown on to the inbox, and the results already made are
      removed: the inbox handles the update anew.
   6. Telegram limits the body of a request, `BOT_MAX_UPLOAD_SIZE`, and refuses one over it with a
-     413, an `Unexpected` failure that blocks the chat in the outbox
-     ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"). A result over the
-     limit less a margin for the multipart, `REQUEST_OVERHEAD_MARGIN_BYTES`, is removed, logged as a
-     `warning` and not sent.
+     413 ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"), which fails the
+     call and takes every file of an album with it ([`outbox.md`](./outbox.md), "Error classes").
+     A result over the limit less a margin for the multipart, `REQUEST_OVERHEAD_MARGIN_BYTES`, is
+     removed, logged as a `warning` and not sent.
   7. Each result is a `PathFile` named after the source with the extension of its target
      (`MyFont.woff` → `MyFont.ttf`); the domain names the file at random. The results go in the
      order of the buttons, as many to a call as fit under the same limit: two and more with

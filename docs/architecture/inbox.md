@@ -412,7 +412,11 @@ class, and why, is read off the method, its constants and their comments. In sho
 - A `GrammyError` or an `HttpError` is classified by `TelegramBotApiFailureClassifier`
   ([`outbox.md`](./outbox.md), "Error classes"), and its class is mapped: `Undeliverable` stays
   `Undeliverable`, so a user who blocked the bot does not block their own group; `Unexpected` stays
-  `Unexpected`; the rest are `Transient`.
+  `Unexpected`; the rest are `Transient`, but for `TooLarge`.
+- A 413 (`TooLarge`) is `Undeliverable`: a retry of the update would send the same request again
+  and get the same 413, and the next update of the group must not wait behind a request that can
+  never go. The outbox has failed the message without blocking the chat and logged the 413 at
+  `error`.
 - A 429 (`Flood`) and a 401 (`Unauthorized`) are `Transient`. Through the outbox neither reaches a
   handler: the outbox waits a 429 out and pauses on a 401 itself. One that does came from a call
   that bypassed the outbox, and the update can be handled once Telegram lets the bot call again.
@@ -514,10 +518,14 @@ An update whose failure blocks its group gets one answer, the last row of step 5
 is an `Unexpected` failure and a `Transient` one on the last attempt of `INBOX_MAX_ATTEMPTS`,
 whether the handler threw it or the lease recovery completed it (see "Lease recovery"). An attempt
 that is retried gets none, so the answer goes out once per blocking, not once per attempt. A failure
-that does not block gets none either. An `Undeliverable` chat takes no message. After a
-`ReplyTimeout` the reply of the handler is still in the outbox and may go out yet, and the answer
-would follow it into the same chat; when the chat is blocked in the outbox, it would wait there
-behind the reply.
+that does not block gets none either. A chat the bot cannot reach takes no message. After a 413
+the chat would take one, and it gets none by the owner's choice
+([#1024](https://github.com/yuldashevsardor/telegram-bot/issues/1024)): the callers keep under the
+upload limit, so a 413 is a bug the `error` of the outbox reports, and an answer to a failure that
+does not block would need a path of its own for it. The person gets what went out before the 413.
+After a `ReplyTimeout` the reply of the handler is still in the outbox and may go out yet, and the
+answer would follow it into the same chat; when the chat is blocked in the outbox, it would wait
+there behind the reply.
 
 `InboxFailureHandler` answers after `markAsFailedAndBlockGroup()` has committed. The completion
 gives back the failed update with its group, read in its transaction, or `null` when it is fenced:

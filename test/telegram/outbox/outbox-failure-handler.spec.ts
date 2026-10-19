@@ -251,6 +251,34 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
+    it("fails a request over the upload limit without blocking its chat", async function () {
+        const message = pulledAfter(0);
+
+        await handler.handle(message, telegramError(413, "Request Entity Too Large"));
+
+        expect(store.calls).to.deep.equal([
+            { method: "markAsFailed", lease: message, error: attemptError(TelegramBotApiFailureKind.TooLarge) },
+        ]);
+    });
+
+    it("logs a request over the upload limit as an error: no blocked chat shows it", async function () {
+        const message = pulledAfter(0);
+
+        await handler.handle(message, telegramError(413, "Request Entity Too Large"));
+
+        expect(logger.errors).to.deep.equal([
+            {
+                message: "The Bot API refuses a request over its upload limit: the message is failed.",
+                payload: {
+                    messageId: message.id,
+                    chatId: message.chatId,
+                    method: message.method,
+                    cause: attemptError(TelegramBotApiFailureKind.TooLarge),
+                },
+            },
+        ]);
+    });
+
     it("fails an unexpected failure and blocks its chat", async function () {
         const message = pulledAfter(0);
 

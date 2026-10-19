@@ -53,6 +53,8 @@ export class OutboxFailureHandler {
                     : this.holdBackChatForFlood(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
+            case TelegramBotApiFailureKind.TooLarge:
+                return this.failTooLarge(message, attemptError);
             case TelegramBotApiFailureKind.Unauthorized:
                 return this.pauseForUnauthorized(message, attemptError);
             case TelegramBotApiFailureKind.Unexpected:
@@ -96,6 +98,20 @@ export class OutboxFailureHandler {
         });
 
         await this.store.retry(message, attemptError, retryAfterSeconds * MS_PER_SECOND);
+    }
+
+    // A 413 means the upload limit of the configuration no longer matches Telegram's, or a call
+    // uploads files without checking it (docs/architecture/outbox.md, "Error classes"). No chat is
+    // blocked, so the handler logs it as an error itself.
+    private async failTooLarge(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+        this.logger.error("The Bot API refuses a request over its upload limit: the message is failed.", {
+            messageId: message.id,
+            chatId: message.chatId,
+            method: message.method,
+            cause: attemptError,
+        });
+
+        await this.store.markAsFailed(message, attemptError);
     }
 
     // Nothing else shows a revoked token: no chat is blocked, the sending only stops.
