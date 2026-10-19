@@ -24,7 +24,7 @@ import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbo
 import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxPriority, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
-import { supportedFormats } from "test/telegram/handler.helper";
+import { supportedFormatsWithEotOnlyTarget } from "test/telegram/handler.helper";
 
 type LogRecord = { level: keyof Logger; message: string; payload: UnknownObject | undefined };
 
@@ -230,7 +230,9 @@ function build(settings: BotSettings = SETTINGS): Harness {
         new RecordingMiddleware("NotAFileMiddleware", events),
         new RecordingMiddleware("FileIntakeMiddleware", events),
         new RecordingMiddleware("ConversionMiddleware", events),
-        supportedFormats,
+        // The descriptions list every format: in a matrix where the sources are fewer, a description
+        // that took the sources fails.
+        supportedFormatsWithEotOnlyTarget,
         settings,
     );
 
@@ -375,7 +377,7 @@ describe("Bot", function () {
             await bot.setup();
             const described = (locale: Locale, localeOptions: UnknownObject): ApiCall[] => {
                 const translate = fluent.withLocale(locale);
-                const formats = supportedFormats.toText();
+                const formats = supportedFormatsWithEotOnlyTarget.toText();
 
                 return [
                     {
