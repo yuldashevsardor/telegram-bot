@@ -182,9 +182,9 @@ and of the bot, and the send.
 The texts of `/start`, `/help` and step 7 are those of the customer journey
 ([`cjm.md`](../product/cjm.md), steps 1-6). Each handler builds its text with `ctx.t()`
 ([`i18n.md`](./i18n.md)) and sends it with one `ctx.reply()` through the outbox (see "The outbox
-transformer"); the conversion sends a document instead of a text. The next message is routed by what
-it is, not by what the bot said before: the one thing they keep in the session is the album
-`NotAFileMiddleware` answered last (below).
+transformer"); the conversion sends a document or an album of them instead of a text. The next
+message is routed by what it is, not by what the bot said before: the one thing they keep in the
+session is the album `NotAFileMiddleware` answered last (below).
 
 - `/start` (`StartCommand`) replies with `start-command-welcome`, the list of formats substituted.
   A repeated `/start` gives the same text.
@@ -251,28 +251,34 @@ it is, not by what the bot said before: the one thing they keep in the session i
      "query is too old": a press handed out late by the inbox, behind the conversions of the same
      chat, or handled again after a failure. That refusal is logged as an `info`, and the
      conversion goes on; any other failure of the answer is thrown on.
-  2. `convert:all` stops here: "Все форматы" converts nothing yet.
-  3. The source: the `reply_to_message` of the question the button stands under, with its
+  2. The source: the `reply_to_message` of the question the button stands under, with its
      `document`. A question whose source was deleted has no reply, and a question older than the
      Bot API lets a bot read comes as an inaccessible message, without one. Either way, and for a
      reply that holds no document, the person gets `conversion-middleware-source-unavailable`, a
      request to send the file again ([`cjm.md`](../product/cjm.md), step 4).
-  4. The pair: the source format by the extension of `file_name`, as the intake took it, and the
-     target among `SupportedFormats.toTargetList()` of that source. Data that names no such pair
-     comes from no button of the bot, or from a question asked before the pair matrix changed: it is
-     logged as a `warning` and gets no answer beyond step 1.
-  5. `sendChatAction` with `upload_document`, through the outbox: the chat shows "отправляет
+  3. The targets: the source format by the extension of `file_name`, as the intake took it, and
+     the target among `SupportedFormats.toTargetList()` of that source, or the whole list for
+     `convert:all`. Data that names no such pair comes from no button of the bot, or from a question
+     asked before the pair matrix changed: it is logged as a `warning` and gets no answer beyond
+     step 1.
+  4. `sendChatAction` with `upload_document`, through the outbox: the chat shows "отправляет
      файл…" while the conversion runs.
-  6. `TelegramFileDownloader` downloads the source again, as at the intake (its errors the same),
-     and `FontConvertor` converts it. The downloaded source is removed whatever the outcome, a
-     failed removal logged as a `warning`. A `FontConvertorError`, the conversion failing on our
-     side, is logged as an `error` and answered with `conversion-middleware-failed` in reply to the
-     source; any other error is thrown on to the inbox.
-  7. The result goes with `sendDocument` in reply to the source, without a caption, as a `PathFile`
-     named after the source with the extension of the target (`MyFont.woff` → `MyFont.ttf`); the
-     domain names the file at random. The outbox removes the file once the document is sent
-     ([`outbox.md`](./outbox.md), "Sending"). The replies set `allow_sending_without_reply`, as the
-     question does, for a source deleted during the conversion.
+  5. `TelegramFileDownloader` downloads the source again, as at the intake (its errors the same),
+     once per press, and `FontConvertor` converts it into each target in turn. The downloaded source
+     is removed whatever the outcome, a failed removal logged as a `warning`. A
+     `FontConvertorError`, a conversion failing on our side, is logged as an `error`, and the other
+     targets still go. Any other error is thrown on to the inbox, and the results already made are
+     removed: the inbox handles the update anew.
+  6. Each result is a `PathFile` named after the source with the extension of its target
+     (`MyFont.woff` → `MyFont.ttf`); the domain names the file at random. Two results and more go
+     with `sendMediaGroup` as one album of documents, a single one with `sendDocument`, in reply to
+     the source and without a caption. The outbox removes the files once the call is sent
+     ([`outbox.md`](./outbox.md), "Sending").
+  7. The failed targets, if any, are named in one reply after the results: for a single format
+     `conversion-middleware-failed`, for `convert:all` `conversion-middleware-failed-formats`,
+     which lists them in the order of the buttons. When every target failed, it is the whole
+     answer. The replies set `allow_sending_without_reply`, as the question does, for a source
+     deleted during the conversion.
 
   The buttons stay under the question: nothing removes or edits them, and every press converts
   anew, from a fresh download.

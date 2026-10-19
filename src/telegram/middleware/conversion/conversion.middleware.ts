@@ -2,7 +2,7 @@ import path from "path";
 import { constants as httpStatus } from "node:http2";
 import { inject, injectable } from "inversify";
 import type { NextFunction } from "grammy";
-import { GrammyError } from "grammy";
+import { GrammyError, InputMediaBuilder } from "grammy";
 import type { Document } from "@grammyjs/types";
 import { Tokens } from "app/shared/tokens";
 import { FileHelper } from "app/shared/fs/file-helper";
@@ -20,7 +20,13 @@ import type { Logger } from "app/platform/logger/logger";
 // The message of the source and its file.
 type Source = { messageId: number; document: Document };
 
-type Pair = { sourceExtension: Extension; targetExtension: Extension };
+type Conversion = { sourceExtension: Extension; targetExtensions: Extension[] };
+
+type Result = { targetExtension: Extension; resultFontPath: string };
+
+type Outcome = { results: Result[]; failedExtensions: Extension[] };
+
+type ReplyParameters = { reply_parameters: { message_id: number; allow_sending_without_reply: boolean } };
 
 // Converts the file of the question a format button stands under (docs/product/cjm.md, steps 3-4).
 // The source is taken from Telegram again, through the message the question replies to: the callback
@@ -51,12 +57,6 @@ export class ConversionMiddleware extends Middleware {
         await this.answerPress(ctx);
 
         const targetName = callbackData.slice(FormatButtons.CALLBACK_DATA_PREFIX.length);
-
-        // "All formats" converts nothing yet.
-        if (targetName === FormatButtons.ALL_FORMATS) {
-            return;
-        }
-
         const source = this.findSource(ctx);
 
         if (source === undefined) {
@@ -66,50 +66,41 @@ export class ConversionMiddleware extends Middleware {
         }
 
         const sourceFilename = source.document.file_name ?? "";
-        const pair = await this.findPair(sourceFilename, targetName);
+        const conversion = await this.findConversion(sourceFilename, targetName);
 
         // The bot offers no such button: the pair matrix changed under an old question, or a client
         // sent data of its own.
-        if (pair === undefined) {
+        if (conversion === undefined) {
             this.logger.warning("The button names no pair of its source.", { sourceFilename: sourceFilename, callbackData: callbackData });
 
             return;
         }
 
-        const { sourceExtension, targetExtension } = pair;
-
         await ctx.replyWithChatAction("upload_document");
 
-        const sourceFontPath = await this.fileDownloader.download(ctx.api, source.document.file_id, sourceExtension);
+        const sourceFontPath = await this.fileDownloader.download(ctx.api, source.document.file_id, conversion.sourceExtension);
+        const outcome = await this.convert(sourceFontPath, conversion);
         const replyParameters = {
             // The source deleted meanwhile would fail a reply that requires it, and the failed call would
             // block the chat in the outbox.
             reply_parameters: { message_id: source.messageId, allow_sending_without_reply: true },
         };
-        let resultFontPath: string;
 
-        try {
-            resultFontPath = await this.convert(sourceFontPath, targetExtension);
-        } catch (error) {
-            if (!(error instanceof FontConvertorError)) {
-                throw error;
-            }
+        await this.sendResults(ctx, sourceFilename, outcome.results, replyParameters);
 
-            this.logger.error("The conversion failed.", {
-                sourceExtension: sourceExtension,
-                targetExtension: targetExtension,
-                cause: error,
-            });
-            await ctx.reply(ctx.t("conversion-middleware-failed", { format: targetExtension.toUpperCase() }), replyParameters);
+        if (outcome.failedExtensions.length === 0) {
+            return;
+        }
+
+        const failedFormats = outcome.failedExtensions.map((extension) => extension.toUpperCase()).join(", ");
+
+        if (targetName === FormatButtons.ALL_FORMATS) {
+            await ctx.reply(ctx.t("conversion-middleware-failed-formats", { formats: failedFormats }), replyParameters);
 
             return;
         }
 
-        // The domain names the result at random; the person gets the name of the source. The outbox
-        // removes the file once the document is sent (docs/architecture/outbox.md, "Sending").
-        const resultFilename = path.parse(sourceFilename).name + "." + targetExtension;
-
-        await ctx.replyWithDocument(new PathFile(resultFontPath, resultFilename), replyParameters);
+        await ctx.reply(ctx.t("conversion-middleware-failed", { format: failedFormats }), replyParameters);
     }
 
     private async answerPress(ctx: Context): Promise<void> {
@@ -152,8 +143,8 @@ export class ConversionMiddleware extends Middleware {
     }
 
     // The source format by the name, as the intake took the file (FileIntakeMiddleware), and the
-    // target among the ones the buttons offer for it.
-    private async findPair(sourceFilename: string, targetName: string): Promise<Pair | undefined> {
+    // targets among the ones the buttons offer for it: the one the button names, or all of them.
+    private async findConversion(sourceFilename: string, targetName: string): Promise<Conversion | undefined> {
         const nameExtension = (await FileHelper.getFileExtension(sourceFilename)).toLowerCase();
         const sourceExtension = this.supportedFormats.toSourceList().find((extension) => extension === nameExtension);
 
@@ -161,31 +152,105 @@ export class ConversionMiddleware extends Middleware {
             return undefined;
         }
 
-        const targetExtension = this.supportedFormats.toTargetList(sourceExtension).find((extension) => extension === targetName);
+        const offeredExtensions = this.supportedFormats.toTargetList(sourceExtension);
+
+        if (targetName === FormatButtons.ALL_FORMATS) {
+            return { sourceExtension: sourceExtension, targetExtensions: offeredExtensions };
+        }
+
+        const targetExtension = offeredExtensions.find((extension) => extension === targetName);
 
         if (targetExtension === undefined) {
             return undefined;
         }
 
-        return { sourceExtension: sourceExtension, targetExtension: targetExtension };
+        return { sourceExtension: sourceExtension, targetExtensions: [targetExtension] };
     }
 
-    // The downloaded source serves this conversion alone: the next press downloads it again.
-    private async convert(sourceFontPath: string, targetExtension: Extension): Promise<string> {
+    // The downloaded source serves this press alone: the next press downloads it again.
+    private async convert(sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
+        const outcome: Outcome = { results: [], failedExtensions: [] };
+
+        try {
+            for (const targetExtension of conversion.targetExtensions) {
+                const resultFontPath = await this.convertTo(sourceFontPath, conversion.sourceExtension, targetExtension);
+
+                if (resultFontPath === undefined) {
+                    outcome.failedExtensions.push(targetExtension);
+                } else {
+                    outcome.results.push({ targetExtension: targetExtension, resultFontPath: resultFontPath });
+                }
+            }
+        } catch (error) {
+            // The results already made would never reach the outbox, which removes the files it sends.
+            for (const result of outcome.results) {
+                await this.removeFile(result.resultFontPath);
+            }
+
+            throw error;
+        } finally {
+            await this.removeFile(sourceFontPath);
+        }
+
+        return outcome;
+    }
+
+    // undefined for a conversion that failed on our side: the person is told, and the other targets
+    // of "all formats" still go.
+    private async convertTo(sourceFontPath: string, sourceExtension: Extension, targetExtension: Extension): Promise<string | undefined> {
         try {
             return await this.fontConvertor.convert({ originPath: sourceFontPath, extension: targetExtension });
-        } finally {
-            await this.removeSourceFont(sourceFontPath);
+        } catch (error) {
+            if (!(error instanceof FontConvertorError)) {
+                throw error;
+            }
+
+            this.logger.error("The conversion failed.", {
+                sourceExtension: sourceExtension,
+                targetExtension: targetExtension,
+                cause: error,
+            });
+
+            return undefined;
         }
+    }
+
+    // A Telegram album holds at least two files, so a single result goes as a plain document.
+    private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyParameters: ReplyParameters): Promise<void> {
+        const resultFiles = results.map((result) => this.toResultFile(sourceFilename, result));
+        const [firstResultFile] = resultFiles;
+
+        if (firstResultFile === undefined) {
+            return;
+        }
+
+        if (resultFiles.length === 1) {
+            await ctx.replyWithDocument(firstResultFile, replyParameters);
+
+            return;
+        }
+
+        await ctx.replyWithMediaGroup(
+            resultFiles.map((resultFile) => InputMediaBuilder.document(resultFile)),
+            replyParameters,
+        );
+    }
+
+    // The domain names the result at random; the person gets the name of the source. The outbox
+    // removes the file once the document is sent (docs/architecture/outbox.md, "Sending").
+    private toResultFile(sourceFilename: string, result: Result): PathFile {
+        const resultFilename = path.parse(sourceFilename).name + "." + result.targetExtension;
+
+        return new PathFile(result.resultFontPath, resultFilename);
     }
 
     // A file left behind costs disk space alone, so its removal keeps neither the document from the
     // person nor the error of the conversion from the caller.
-    private async removeSourceFont(sourceFontPath: string): Promise<void> {
+    private async removeFile(fontPath: string): Promise<void> {
         try {
-            await FileHelper.remove(sourceFontPath);
+            await FileHelper.remove(fontPath);
         } catch (error) {
-            this.logger.warning("The downloaded file was not removed.", { path: sourceFontPath, cause: error });
+            this.logger.warning("The file was not removed.", { path: fontPath, cause: error });
         }
     }
 }
