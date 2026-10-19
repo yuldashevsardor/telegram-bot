@@ -184,7 +184,6 @@ describe("FontForge.convert", function () {
         this.timeout(caseTimeoutMs);
 
         before(async function () {
-            this.timeout(caseTimeoutMs);
             sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-forge-cff-"));
             cidKeyedPastCffPath = path.join(sourceDir, "cid-keyed.otf");
             trueTypePastCffPath = path.join(sourceDir, "true-type.ttf");
@@ -226,8 +225,14 @@ describe("FontForge.convert", function () {
 
             await fontForge.convert(srcPath, distPath);
 
-            const otfFont = await fs.readFile(distPath);
-            expect(otfFont.includes(`glyph${cffGlyphNameCountMax}`)).to.be.true;
+            // A name past the limit keeps its text in the CFF and loses its string ID, so the names
+            // are read back: a wrapped one comes back as a standard string.
+            const namesScript = [
+                "import fontforge, sys",
+                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("glyph")}))',
+            ].join("\n");
+            const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, distPath]);
+            expect(Number(stdout)).to.equal(cffGlyphNameCountMax);
         });
 
         it("refuses to write into otf a font with one glyph name more than a name-keyed CFF holds", async function () {

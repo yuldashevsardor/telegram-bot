@@ -178,8 +178,8 @@ writes quadratic ones into `glyf` and the names into `post`. TTF and SVG are not
 
 The count takes every glyph but `.notdef` and does not tell a standard name, such as `A` or
 `space`, from one of the font's own, nor a standard string of the Top DICT, such as the version
-`001.000`. A font of more than 65 140 glyphs that would fit thanks to standard names is refused all
-the same. The owner accepted this: an exact count would carry the 391 standard strings in the
+`001.000`. A font of more than 65 140 glyphs besides `.notdef` that would fit thanks to standard
+names is refused all the same. The owner accepted this: an exact count would carry the 391 standard strings in the
 script, and a font that close to the limit is not in the corpus.
 
 ## Checking the result

@@ -26,8 +26,8 @@ WOFF2 is made in the application image with the command below, and so are OTF, W
 a replacement be needed. The command does what the conversion script `FontForge.convertToOtfScript`
 does for a source that is not SVG: the part of that script that takes code points off runs only for
 an SVG source, given the list of its unencoded glyphs as a third argument, and the part that refuses
-a font past the glyph names of a name-keyed CFF only for a font of more than 65 140 glyphs
-(`docs/architecture/font-convertor.md`, "Glyph names in CFF"). `convertToTtfScript` and
+a font past the glyph names of a name-keyed CFF only for a font of more than 65 140 glyphs besides
+`.notdef` (`docs/architecture/font-convertor.md`, "Glyph names in CFF"). `convertToTtfScript` and
 `convertToWoffScript`, which the bot runs into TTF and into WOFF and WOFF2, differ in flattening a
 CID-keyed font, and `test-font.ttf` is not one.
 The bot writes SVG with `FontForge.convertToSvgScript`, which copies some glyphs first; measured
