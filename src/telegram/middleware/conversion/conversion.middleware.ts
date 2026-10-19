@@ -20,13 +20,13 @@ import type { Logger } from "app/platform/logger/logger";
 // The message of the source and its file.
 type Source = { messageId: number; document: Document };
 
-type Conversion = { sourceExtension: Extension; targetExtensions: Extension[] };
+type Conversion = { sourceExtension: Extension; targetExtensions: Extension[]; isAllFormats: boolean };
 
 type Result = { targetExtension: Extension; resultFontPath: string };
 
 type Outcome = { results: Result[]; failedExtensions: Extension[] };
 
-type ReplyParameters = { reply_parameters: { message_id: number; allow_sending_without_reply: boolean } };
+type ReplyOptions = { reply_parameters: { message_id: number; allow_sending_without_reply: boolean } };
 
 // Converts the file of the question a format button stands under (docs/product/cjm.md, steps 3-4).
 // The source is taken from Telegram again, through the message the question replies to: the callback
@@ -79,28 +79,31 @@ export class ConversionMiddleware extends Middleware {
         await ctx.replyWithChatAction("upload_document");
 
         const sourceFontPath = await this.fileDownloader.download(ctx.api, source.document.file_id, conversion.sourceExtension);
-        const outcome = await this.convert(sourceFontPath, conversion);
-        const replyParameters = {
+        const outcome = await this.convert(ctx, sourceFontPath, conversion);
+        const replyOptions = {
             // The source deleted meanwhile would fail a reply that requires it, and the failed call would
             // block the chat in the outbox.
             reply_parameters: { message_id: source.messageId, allow_sending_without_reply: true },
         };
 
-        await this.sendResults(ctx, sourceFilename, outcome.results, replyParameters);
+        await this.sendResults(ctx, sourceFilename, outcome.results, replyOptions);
 
-        if (outcome.failedExtensions.length === 0) {
+        const [firstFailedExtension] = outcome.failedExtensions;
+
+        if (firstFailedExtension === undefined) {
             return;
         }
 
-        const failedFormats = outcome.failedExtensions.map((extension) => extension.toUpperCase()).join(", ");
+        if (conversion.isAllFormats) {
+            const failedFormats = outcome.failedExtensions.map((extension) => extension.toUpperCase()).join(", ");
 
-        if (targetName === FormatButtons.ALL_FORMATS) {
-            await ctx.reply(ctx.t("conversion-middleware-failed-formats", { formats: failedFormats }), replyParameters);
+            await ctx.reply(ctx.t("conversion-middleware-failed-formats", { formats: failedFormats }), replyOptions);
 
             return;
         }
 
-        await ctx.reply(ctx.t("conversion-middleware-failed", { format: failedFormats }), replyParameters);
+        // A press of one format converts into it alone, so it is the one that failed.
+        await ctx.reply(ctx.t("conversion-middleware-failed", { format: firstFailedExtension.toUpperCase() }), replyOptions);
     }
 
     private async answerPress(ctx: Context): Promise<void> {
@@ -155,7 +158,7 @@ export class ConversionMiddleware extends Middleware {
         const offeredExtensions = this.supportedFormats.toTargetList(sourceExtension);
 
         if (targetName === FormatButtons.ALL_FORMATS) {
-            return { sourceExtension: sourceExtension, targetExtensions: offeredExtensions };
+            return { sourceExtension: sourceExtension, targetExtensions: offeredExtensions, isAllFormats: true };
         }
 
         const targetExtension = offeredExtensions.find((extension) => extension === targetName);
@@ -164,15 +167,21 @@ export class ConversionMiddleware extends Middleware {
             return undefined;
         }
 
-        return { sourceExtension: sourceExtension, targetExtensions: [targetExtension] };
+        return { sourceExtension: sourceExtension, targetExtensions: [targetExtension], isAllFormats: false };
     }
 
     // The downloaded source serves this press alone: the next press downloads it again.
-    private async convert(sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
+    private async convert(ctx: Context, sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
         const outcome: Outcome = { results: [], failedExtensions: [] };
 
         try {
-            for (const targetExtension of conversion.targetExtensions) {
+            for (const [index, targetExtension] of conversion.targetExtensions.entries()) {
+                // Telegram shows a chat action for five seconds at most, so each conversion of "all
+                // formats" renews it. The first one has the action sent before the download.
+                if (index > 0) {
+                    await ctx.replyWithChatAction("upload_document");
+                }
+
                 const resultFontPath = await this.convertTo(sourceFontPath, conversion.sourceExtension, targetExtension);
 
                 if (resultFontPath === undefined) {
@@ -216,7 +225,7 @@ export class ConversionMiddleware extends Middleware {
     }
 
     // A Telegram album holds at least two files, so a single result goes as a plain document.
-    private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyParameters: ReplyParameters): Promise<void> {
+    private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyOptions: ReplyOptions): Promise<void> {
         const resultFiles = results.map((result) => this.toResultFile(sourceFilename, result));
         const [firstResultFile] = resultFiles;
 
@@ -225,14 +234,14 @@ export class ConversionMiddleware extends Middleware {
         }
 
         if (resultFiles.length === 1) {
-            await ctx.replyWithDocument(firstResultFile, replyParameters);
+            await ctx.replyWithDocument(firstResultFile, replyOptions);
 
             return;
         }
 
         await ctx.replyWithMediaGroup(
             resultFiles.map((resultFile) => InputMediaBuilder.document(resultFile)),
-            replyParameters,
+            replyOptions,
         );
     }
 
