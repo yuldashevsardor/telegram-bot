@@ -10,6 +10,15 @@ import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export class FontForge {
+    // A name-keyed CFF refers to a glyph name by a string ID of 16 bits, and the IDs below 391 are the
+    // standard strings of CFF. Of the strings of its own fontforge 20230101 writes five besides the
+    // glyph names, the Top DICT's version, Notice, FullName, FamilyName and Weight, each apart even
+    // when two are equal or one is empty (docs/architecture/font-convertor.md, "Glyph names in CFF").
+    private static readonly CFF_STRING_ID_COUNT = 0x10000;
+    private static readonly CFF_STANDARD_STRING_COUNT = 391;
+    private static readonly CFF_TOP_DICT_STRING_COUNT = 5;
+    private static readonly CFF_GLYPH_NAME_COUNT_MAX =
+        FontForge.CFF_STRING_ID_COUNT - FontForge.CFF_STANDARD_STRING_COUNT - FontForge.CFF_TOP_DICT_STRING_COUNT;
     // EOT is left out on purpose: EotPacker takes the envelope off and puts it on, and the engine
     // reads or writes a plain sfnt (docs/architecture/invariants.md; docs/architecture/font-convertor.md,
     // "EOT"; issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
@@ -36,10 +45,37 @@ export class FontForge {
     // would only merge the hints of the sub-fonts and name every glyph, past what a name-keyed CFF
     // holds in the largest fonts (docs/architecture/font-convertor.md, "CID-keyed fonts").
     private readonly flattenCidFontScript = ["if font.is_cid:", "    font.cidFlatten()"];
-    private readonly convertToOtfScript = [...this.openFontAndUnencodeGlyphsScript, "font.generate(sys.argv[2])"].join("\n");
-    private readonly convertFlattenedScript = [
+    // Past the glyph names a name-keyed CFF holds fontforge writes the font with a zero exit code and
+    // the names wrapped onto the standard strings of CFF, so the script fails before generate(). A
+    // glyph with a standard name takes no string, and the count holds it against the limit all the
+    // same (docs/architecture/font-convertor.md, "Glyph names in CFF").
+    private readonly refuseGlyphNamesPastCffScript = [
+        "def refuseGlyphNamesPastCff():",
+        '    glyphNameCount = sum(1 for glyph in font.glyphs() if glyph.glyphname != ".notdef")',
+        `    if glyphNameCount > ${FontForge.CFF_GLYPH_NAME_COUNT_MAX}:`,
+        `        raise ValueError("%d glyph names, a name-keyed CFF holds ${FontForge.CFF_GLYPH_NAME_COUNT_MAX}" % glyphNameCount)`,
+    ];
+    // A CID-keyed CFF names its glyphs by CID, not by string.
+    private readonly convertToOtfScript = [
+        ...this.openFontAndUnencodeGlyphsScript,
+        ...this.refuseGlyphNamesPastCffScript,
+        "if not font.is_cid:",
+        "    refuseGlyphNamesPastCff()",
+        "font.generate(sys.argv[2])",
+    ].join("\n");
+    private readonly convertToTtfScript = [
         ...this.openFontAndUnencodeGlyphsScript,
         ...this.flattenCidFontScript,
+        "font.generate(sys.argv[2])",
+    ].join("\n");
+    // fontforge writes the outlines of a WOFF or a WOFF2 as the font has them: quadratic ones as glyf,
+    // cubic ones as CFF.
+    private readonly convertToWoffScript = [
+        ...this.openFontAndUnencodeGlyphsScript,
+        ...this.flattenCidFontScript,
+        ...this.refuseGlyphNamesPastCffScript,
+        "if not font.layers[font.activeLayer].is_quadratic:",
+        "    refuseGlyphNamesPastCff()",
         "font.generate(sys.argv[2])",
     ].join("\n");
     // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script
@@ -156,7 +192,11 @@ export class FontForge {
             return this.convertToOtfScript;
         }
 
-        return this.convertFlattenedScript;
+        if (distExtension === Extension.TTF) {
+            return this.convertToTtfScript;
+        }
+
+        return this.convertToWoffScript;
     }
 
     /**

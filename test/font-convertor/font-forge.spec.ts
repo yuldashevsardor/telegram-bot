@@ -171,6 +171,130 @@ describe("FontForge.convert", function () {
         }
     });
 
+    // fontforge 20230101 writes a name-keyed CFF past the names it holds with a zero exit code, the
+    // names wrapped onto the standard strings of CFF.
+    describe("past the glyph names of a name-keyed CFF", function () {
+        // 65 536 string IDs, less the 391 standard strings and the 5 Top DICT strings fontforge writes.
+        const cffGlyphNameCountMax = 65_140;
+        const caseTimeoutMs = 30_000;
+        let sourceDir: string;
+        let cidKeyedPastCffPath: string;
+        let trueTypePastCffPath: string;
+
+        this.timeout(caseTimeoutMs);
+
+        before(async function () {
+            this.timeout(caseTimeoutMs);
+            sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-forge-cff-"));
+            cidKeyedPastCffPath = path.join(sourceDir, "cid-keyed.otf");
+            trueTypePastCffPath = path.join(sourceDir, "true-type.ttf");
+            // Every added glyph goes into the first sub-font, which is how a CID-keyed font with one
+            // sub-font of all its glyphs looks to fontforge.
+            const cidKeyedScript = [
+                "import fontforge, sys",
+                "font = fontforge.open(sys.argv[1])",
+                "font.cidsubfont = 0",
+                "for index in range(int(sys.argv[3])):",
+                '    font.createChar(-1, "added%d" % index).width = 500',
+                "font.generate(sys.argv[2])",
+            ].join("\n");
+            await ProcessHelper.run("fontforge", [
+                "-c",
+                cidKeyedScript,
+                cidKeyedFontPath,
+                cidKeyedPastCffPath,
+                String(cffGlyphNameCountMax),
+            ]);
+            const trueTypeScript = [
+                "import fontforge, sys",
+                "font = fontforge.font()",
+                "for index in range(int(sys.argv[2])):",
+                '    font.createChar(-1, "glyph%d" % index).width = 500',
+                "font.generate(sys.argv[1])",
+            ].join("\n");
+            await ProcessHelper.run("fontforge", ["-c", trueTypeScript, trueTypePastCffPath, String(cffGlyphNameCountMax + 1)]);
+        });
+
+        after(async function () {
+            await fs.rm(sourceDir, { recursive: true, force: true });
+        });
+
+        it("writes into otf a font with as many glyph names as a name-keyed CFF holds", async function () {
+            const srcPath = path.join(workDir, "font.svg");
+            const distPath = path.join(workDir, "result.otf");
+            await fs.writeFile(srcPath, svgFontWithGlyphs(cffGlyphNameCountMax));
+
+            await fontForge.convert(srcPath, distPath);
+
+            const otfFont = await fs.readFile(distPath);
+            expect(otfFont.includes(`glyph${cffGlyphNameCountMax}`)).to.be.true;
+        });
+
+        it("refuses to write into otf a font with one glyph name more than a name-keyed CFF holds", async function () {
+            const srcPath = path.join(workDir, "font.svg");
+            const distPath = path.join(workDir, "result.otf");
+            await fs.writeFile(srcPath, svgFontWithGlyphs(cffGlyphNameCountMax + 1));
+
+            const error = await rejectionOf(() => fontForge.convert(srcPath, distPath));
+
+            expect(error).to.be.instanceOf(ExecuteError);
+            expect((error as ExecuteError).message).to.include(
+                `${cffGlyphNameCountMax + 1} glyph names, a name-keyed CFF holds ${cffGlyphNameCountMax}`,
+            );
+            expect(await FileHelper.isExist(distPath)).to.be.false;
+        });
+
+        // The flattened font names each glyph after its CID.
+        it("refuses to write into woff a CID-keyed font whose flattened glyph names a name-keyed CFF cannot hold", async function () {
+            const distPath = path.join(workDir, "result.woff");
+
+            const error = await rejectionOf(() => fontForge.convert(cidKeyedPastCffPath, distPath));
+
+            expect(error).to.be.instanceOf(ExecuteError);
+            expect((error as ExecuteError).message).to.include(`a name-keyed CFF holds ${cffGlyphNameCountMax}`);
+            expect((error as ExecuteError).payload).to.deep.equal({ path: cidKeyedPastCffPath });
+            expect(await FileHelper.isExist(distPath)).to.be.false;
+        });
+
+        it("writes into otf a CID-keyed font past the glyph names of a name-keyed CFF", async function () {
+            const distPath = path.join(workDir, "result.otf");
+
+            await fontForge.convert(cidKeyedPastCffPath, distPath);
+
+            await new SfntFontValidator().validate(distPath);
+        });
+
+        it("writes into ttf a flattened font past the glyph names of a name-keyed CFF", async function () {
+            const distPath = path.join(workDir, "result.ttf");
+
+            await fontForge.convert(cidKeyedPastCffPath, distPath);
+
+            await new SfntFontValidator().validate(distPath);
+        });
+
+        it("writes into woff a TrueType font past the glyph names of a name-keyed CFF", async function () {
+            const distPath = path.join(workDir, "result.woff");
+
+            await fontForge.convert(trueTypePastCffPath, distPath);
+
+            await new WoffFontValidator(new SfntFontValidator()).validate(distPath);
+        });
+
+        // Cubic outlines with names of the spec's own: an SVG source needs no engine to make.
+        function svgFontWithGlyphs(glyphCount: number): string {
+            const glyphs: Array<string> = [];
+            for (let glyphNumber = 1; glyphNumber <= glyphCount; glyphNumber++) {
+                glyphs.push(`<glyph glyph-name="glyph${glyphNumber}" d="M0 0h100v100h-100z"/>`);
+            }
+
+            return (
+                '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+                glyphs.join("") +
+                "</font></svg>"
+            );
+        }
+    });
+
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
     it("adds no glyph copies to a font of another format", async function () {
         const distPath = path.join(workDir, "result.otf");
