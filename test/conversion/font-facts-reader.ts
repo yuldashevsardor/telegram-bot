@@ -27,8 +27,8 @@ export class FontFactsReader {
     // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps the
     // width of each of them, so a change of any one shows. The widths are sorted, since the glyph
     // order differs between formats; two variants that swap their widths therefore pass unseen. A
-    // CID-keyed font is flattened as FontForge.openFontAndUnencodeGlyphsScript flattens it: unflattened,
-    // font.glyphs() walks its first sub-font alone.
+    // CID-keyed font is flattened as FontForge.flattenCidFontScript flattens it, an OTF result too:
+    // unflattened, font.glyphs() walks its first sub-font alone.
     private readonly readScript = [
         "import fontforge, io, json, sys",
         "font = fontforge.open(sys.argv[1])",

@@ -12,8 +12,8 @@ FontConvertor.convert({ originPath, extension })
     of its format accepts it (FontValidatorResolver); the result path does not exist
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
     source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
-    argument (SvgFontPreparer, "Reading SVG"); the script flattens a CID-keyed font first
-    ("CID-keyed fonts")
+    argument (SvgFontPreparer, "Reading SVG"); the script flattens a CID-keyed font for every
+    target but OTF ("CID-keyed fonts")
   → the validator of the target format accepts the result (FontValidatorResolver), otherwise
     FontConvertorError ("Checking the result")
 ```
@@ -123,30 +123,35 @@ opens such a font with its first sub-font active: `font.glyphs()` walks that sub
 `generate()` into a format that is not CID-keyed writes it alone, under the sub-font's name. The
 whole `NotoSansCJKsc-Regular.otf`, 65 535 glyphs in 18 sub-fonts, came out of every pair as the 52
 fullwidth Latin letters of its first sub-font, `Alphabetic`, with a zero exit code
-([#1026](https://github.com/yuldashevsardor/telegram-bot/issues/1026)). So
-`FontForge.openFontAndUnencodeGlyphsScript`, the start of both conversion scripts, flattens a
-CID-keyed font with `font.cidFlatten()` before anything else: the sub-fonts merge into one
-name-keyed font, each glyph named after its CID (`Identity.1` in Noto Sans CJK SC), and every target
-gets all of them. An OTF result is name-keyed CFF too, not CID-keyed. The conversion check reads a
-CID-keyed source flattened the same way (`testing.md`, "The conversion check").
+([#1026](https://github.com/yuldashevsardor/telegram-bot/issues/1026)). So the conversion scripts
+flatten a CID-keyed font with `font.cidFlatten()` (`FontForge.flattenCidFontScript`): the sub-fonts
+merge into one name-keyed font, each glyph named after its CID (`Identity.1` in Noto Sans CJK SC),
+and the target gets all of them. The conversion check reads a CID-keyed font flattened the same way
+(`testing.md`, "The conversion check").
+
+An OTF is not flattened: fontforge writes a CID-keyed font into OTF CID-keyed and whole, its
+sub-fonts kept. Measured on the whole Noto Sans CJK SC as an OTF and as a WOFF wrapped around the
+same sfnt by fontTools, which the WOFF validator accepts: both came out as an OTF of 18 sub-fonts
+and 65 535 glyphs that fontTools reads. `FontForge.scriptFor()` picks `convertToOtfScript` for that
+target. Flattened, the OTF would lose what the two paragraphs below say a flattened font loses.
 
 The private dictionaries of the sub-fonts do not survive the flattening: a name-keyed CFF has one,
-so the CFF hints of an OTF or WOFF result keep one set of alignment zones for every glyph. In the
-fixture of the check `Alphabetic` has the `BlueValues` `[-13, 0, 544, 557, 735, 747]`,
-`Proportional` `[-13, 0, 543, 557, 733, 747]`, the ideographs and Hangul `[-250, -250, 1100, 1100]`,
-and the flattened result `[-20, 0, 543, 543, 733, 733]`. Hinting is not among the facts the check
-compares, so it does not see this.
+so the CFF hints of a WOFF result keep one set of alignment zones for every glyph. In the fixture of
+the check `Alphabetic` has the `BlueValues` `[-13, 0, 544, 557, 735, 747]`, `Proportional`
+`[-13, 0, 543, 557, 733, 747]`, the ideographs and Hangul `[-250, -250, 1100, 1100]`, and the
+flattened result `[-20, 0, 543, 543, 733, 733]`. Hinting is not among the facts the check compares,
+so it does not see this.
 
 Flattening holds up to the names a name-keyed CFF can store: its String INDEX, which holds every
 glyph name, counts its strings in 16 bits. The region subset `NotoSansSC-Regular.otf` of noto-cjk,
 31 036 glyphs, converts whole into every format. The whole Noto Sans CJK SC, 65 535 glyphs, does
-not. Into OTF and WOFF fontforge prints "Attempt to output 65538 into a 16-bit field. It will be
-truncated and the file may not be useful", exits with 0 and writes a CFF whose String INDEX counts 2
-strings, so fontTools cannot read its Top DICT. The sfnt and WOFF validators accept both results:
-they do not read what `CFF ` holds (the class comment of `SfntFontValidator`), so the bot sends a
-broken file ([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)). Into TTF and EOT
-the font is past the glyph limit of sfnt ("Checking the result"), and into WOFF2 the engine fails.
-Only the SVG, 45 448 371 bytes, comes through.
+not. Into WOFF fontforge prints "Attempt to output 65538 into a 16-bit field. It will be truncated
+and the file may not be useful", exits with 0 and writes a CFF whose String INDEX counts 2 strings,
+so fontTools cannot read its Top DICT. The WOFF validator accepts the result: neither it nor the
+sfnt validator reads what `CFF ` holds (the class comment of `SfntFontValidator`), so the bot sends
+a broken file ([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)). Into TTF and
+EOT the font is past the glyph limit of sfnt ("Checking the result"), and into WOFF2 the engine
+fails. The SVG, 45 448 371 bytes, comes through.
 
 ## Checking the result
 

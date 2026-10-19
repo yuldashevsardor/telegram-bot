@@ -126,6 +126,31 @@ describe("FontForge.convert", function () {
         expect(characters).to.include.members(["Ａ", "A", "あ", "中", "한"]);
     });
 
+    // The CFF of a CID-keyed font keeps the name of each sub-font as text, and a flattened font has
+    // none of them. FontForge does not refuse a source of the target format, so the fixture stands for
+    // the CID-keyed CFF a WOFF or a WOFF2 carries.
+    it("writes a CID-keyed font into otf with its sub-fonts", async function () {
+        const distPath = path.join(workDir, "result.otf");
+        const subFontNames = [
+            "Alphabetic",
+            "Generic",
+            "Hangul",
+            "Ideographs",
+            "Kana",
+            "Proportional",
+            "ProportionalCJK",
+            "ProportionalDigits",
+            "VKana",
+        ];
+
+        await fontForge.convert(path.join(fixtureDir, "noto-sans-cjk-sc", "NotoSansCJKsc-Regular-subset.otf"), distPath);
+
+        const otfFont = await fs.readFile(distPath);
+        for (const subFontName of subFontNames) {
+            expect(otfFont.includes(`NotoSansCJKsc-Regular-${subFontName}`), subFontName).to.be.true;
+        }
+    });
+
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
     it("adds no glyph copies to a font of another format", async function () {
         const distPath = path.join(workDir, "result.otf");
