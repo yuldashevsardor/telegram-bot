@@ -55,28 +55,26 @@ export class FontForge {
     // glyph with a standard name takes no string, and the count holds it against the limit all the
     // same (docs/architecture/font-convertor.md, "Glyph names in CFF", "Glyph names in post").
     private readonly refuseGlyphNamesPastScript = [
-        "def refuseGlyphNamesPast(glyphNameCountMax, nameTable):",
+        "def refuseGlyphNamesPast(glyphNameCountMax, nameTableLabel):",
         '    glyphNameCount = sum(1 for glyph in font.glyphs() if glyph.glyphname != ".notdef")',
         "    if glyphNameCount > glyphNameCountMax:",
-        '        raise ValueError("%d glyph names, %s holds %d" % (glyphNameCount, nameTable, glyphNameCountMax))',
-        "def refuseGlyphNamesPastCff():",
-        `    refuseGlyphNamesPast(${FontForge.CFF_GLYPH_NAME_COUNT_MAX}, "a name-keyed CFF")`,
-        "def refuseGlyphNamesPastPost():",
-        `    refuseGlyphNamesPast(${FontForge.POST_GLYPH_NAME_COUNT_MAX}, "post 2.0")`,
+        '        raise ValueError("%d glyph names, %s holds %d" % (glyphNameCount, nameTableLabel, glyphNameCountMax))',
     ];
+    private readonly refuseGlyphNamesPastCffCall = `refuseGlyphNamesPast(${FontForge.CFF_GLYPH_NAME_COUNT_MAX}, "a name-keyed CFF")`;
+    private readonly refuseGlyphNamesPastPostCall = `refuseGlyphNamesPast(${FontForge.POST_GLYPH_NAME_COUNT_MAX}, "post 2.0")`;
     // A CID-keyed CFF names its glyphs by CID, not by string.
     private readonly convertToOtfScript = [
         ...this.openFontAndUnencodeGlyphsScript,
         ...this.refuseGlyphNamesPastScript,
         "if not font.is_cid:",
-        "    refuseGlyphNamesPastCff()",
+        `    ${this.refuseGlyphNamesPastCffCall}`,
         "font.generate(sys.argv[2])",
     ].join("\n");
     private readonly convertToTtfScript = [
         ...this.openFontAndUnencodeGlyphsScript,
         ...this.flattenCidFontScript,
         ...this.refuseGlyphNamesPastScript,
-        "refuseGlyphNamesPastPost()",
+        this.refuseGlyphNamesPastPostCall,
         "font.generate(sys.argv[2])",
     ].join("\n");
     // fontforge writes the outlines of a WOFF or a WOFF2 as the font has them: quadratic ones as glyf
@@ -86,9 +84,9 @@ export class FontForge {
         ...this.flattenCidFontScript,
         ...this.refuseGlyphNamesPastScript,
         "if font.layers[font.activeLayer].is_quadratic:",
-        "    refuseGlyphNamesPastPost()",
+        `    ${this.refuseGlyphNamesPastPostCall}`,
         "else:",
-        "    refuseGlyphNamesPastCff()",
+        `    ${this.refuseGlyphNamesPastCffCall}`,
         "font.generate(sys.argv[2])",
     ].join("\n");
     // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script

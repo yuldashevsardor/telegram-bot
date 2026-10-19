@@ -227,12 +227,7 @@ describe("FontForge.convert", function () {
 
             // A name past the limit keeps its text in the CFF and loses its string ID, so the names
             // are read back: a wrapped one comes back as a standard string.
-            const namesScript = [
-                "import fontforge, sys",
-                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("name")}))',
-            ].join("\n");
-            const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, distPath]);
-            expect(Number(stdout)).to.equal(cffGlyphNameCountMax);
+            expect(await svgGlyphNameCount(distPath)).to.equal(cffGlyphNameCountMax);
         });
 
         it("refuses to write into otf a font with one glyph name more than a name-keyed CFF holds", async function () {
@@ -292,28 +287,8 @@ describe("FontForge.convert", function () {
         // 65 536 name indexes, less the 258 standard Macintosh names.
         const postGlyphNameCountMax = 65_278;
         const caseTimeoutMs = 30_000;
-        let sourceDir: string;
-        let trueTypePastPostPath: string;
 
         this.timeout(caseTimeoutMs);
-
-        before(async function () {
-            sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-forge-post-"));
-            trueTypePastPostPath = path.join(sourceDir, "true-type.ttf");
-            // short-post writes a post 3.0, which holds no names, so the source itself comes out whole.
-            const trueTypeScript = [
-                "import fontforge, sys",
-                "font = fontforge.font()",
-                "for index in range(int(sys.argv[2])):",
-                '    font.createChar(-1, "glyph%d" % index).width = 500',
-                'font.generate(sys.argv[1], flags=("short-post",))',
-            ].join("\n");
-            await ProcessHelper.run("fontforge", ["-c", trueTypeScript, trueTypePastPostPath, String(postGlyphNameCountMax + 1)]);
-        });
-
-        after(async function () {
-            await fs.rm(sourceDir, { recursive: true, force: true });
-        });
 
         it("writes into ttf a font with as many glyph names as post 2.0 holds", async function () {
             const srcPath = path.join(workDir, "font.svg");
@@ -323,12 +298,7 @@ describe("FontForge.convert", function () {
             await fontForge.convert(srcPath, distPath);
 
             // A name past the limit points at a standard name, so the names are read back.
-            const namesScript = [
-                "import fontforge, sys",
-                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("name")}))',
-            ].join("\n");
-            const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, distPath]);
-            expect(Number(stdout)).to.equal(postGlyphNameCountMax);
+            expect(await svgGlyphNameCount(distPath)).to.equal(postGlyphNameCountMax);
         });
 
         it("refuses to write into ttf a font with one glyph name more than post 2.0 holds", async function () {
@@ -346,7 +316,17 @@ describe("FontForge.convert", function () {
         });
 
         it("refuses to write into woff a TrueType font past the glyph names of post 2.0", async function () {
+            const trueTypePastPostPath = path.join(workDir, "true-type.ttf");
             const distPath = path.join(workDir, "result.woff");
+            // short-post writes a post 3.0, which holds no names, so the source itself comes out whole.
+            const trueTypeScript = [
+                "import fontforge, sys",
+                "font = fontforge.font()",
+                "for index in range(int(sys.argv[2])):",
+                '    font.createChar(-1, "glyph%d" % index).width = 500',
+                'font.generate(sys.argv[1], flags=("short-post",))',
+            ].join("\n");
+            await ProcessHelper.run("fontforge", ["-c", trueTypeScript, trueTypePastPostPath, String(postGlyphNameCountMax + 1)]);
 
             const error = await rejectionOf(() => fontForge.convert(trueTypePastPostPath, distPath));
 
@@ -544,6 +524,17 @@ describe("FontForge.convert", function () {
             glyphs.join("") +
             "</font></svg>"
         );
+    }
+
+    // The names of svgFontWithGlyphs() the font holds, each counted once.
+    async function svgGlyphNameCount(fontPath: string): Promise<number> {
+        const namesScript = [
+            "import fontforge, sys",
+            'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("name")}))',
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, fontPath]);
+
+        return Number(stdout);
     }
 
     function fixture(extension: Extension): string {

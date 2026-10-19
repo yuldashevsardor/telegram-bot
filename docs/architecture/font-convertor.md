@@ -170,8 +170,8 @@ it: no validator reads what `CFF ` holds (the class comment of `SfntFontValidato
 ([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)).
 
 So the scripts of the targets that write a name-keyed CFF count the glyph names before `generate()`
-(`refuseGlyphNamesPastCff()` of `FontForge.refuseGlyphNamesPastScript`) and raise past 65 140, the
-65 145 strings less the five of the Top DICT. The engine exits with an error, and the conversion
+(`FontForge.refuseGlyphNamesPastCffCall` of `refuseGlyphNamesPastScript`) and raise past 65 140,
+the 65 145 strings less the five of the Top DICT. The engine exits with an error, and the conversion
 fails as on any failure of the engine. `convertToOtfScript` counts unless the font is CID-keyed: a
 CID-keyed CFF refers to its glyphs by CID, and an OTF is written CID-keyed ("CID-keyed fonts").
 `convertToWoffScript`, which WOFF and WOFF2 run, counts after the flattening and against this limit
@@ -205,11 +205,14 @@ checks where the strings an index points at lie, not that every glyph has a name
 sfnt validator").
 
 So the scripts of the targets that write `post` 2.0 count the glyph names before `generate()`
-(`refuseGlyphNamesPastPost()` of `FontForge.refuseGlyphNamesPastScript`) and raise past 65 278:
+(`FontForge.refuseGlyphNamesPastPostCall` of `refuseGlyphNamesPastScript`) and raise past 65 278:
 `convertToTtfScript`, which TTF runs and the pairs into EOT on their way through TTF ("EOT"), and
 `convertToWoffScript` when the outlines are quadratic, both after the flattening. The count is the
 one of CFF, every glyph but `.notdef`, so a font that would fit thanks to standard names such as
 `.null` or `space` is refused all the same, as the owner accepted for CFF ("Glyph names in CFF").
+That takes in a TTF the bot wrote itself: the encoded font of 65 278 names above comes out with
+`.null` and `nonmarkingreturn` added, and sent back into TTF or WOFF it counts 65 280 and is
+refused. A font with no encoded glyph gets neither and passes the count again.
 
 ## Checking the result
 
