@@ -13,6 +13,8 @@ FontConvertor.convert({ originPath, extension })
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
     source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
     argument (SvgFontPreparer, "Reading SVG")
+  → the validator of the target format accepts the result (FontValidatorResolver), otherwise
+    FontConvertorError ("Checking the result")
 ```
 
 ## EOT
@@ -111,6 +113,45 @@ the corpus it prints 2.4 MB and exits with 0. `execFile` keeps the whole output 
 `maxBuffer`, 1 MiB by default, so under it the bot failed such a font in every format, throwing away
 the written result ([#912](https://github.com/yuldashevsardor/telegram-bot/issues/912)). The tail
 is what goes into the message of `ProcessFailed`, so the error stays bounded too.
+
+## Checking the result
+
+A zero exit code of the engine does not mean a font was written. Past the 65 535 glyphs of sfnt
+fontforge 20230101 writes a TTF of 0 bytes and exits with 0: it prints "the 'sfnt' format is
+currently limited to 65535 glyphs, and your font has 65537 of them", since the TrueType output adds
+glyphs of its own. Measured on the flattened Noto Sans CJK SC, an OTF of 65 535 glyphs
+([#1025](https://github.com/yuldashevsardor/telegram-bot/issues/1025)). So after the pair
+`FontConvertor.convert()` hands the result to the validator of the target format, the one a source
+of that format meets, and its rejection becomes the cause of `FontConvertorError`, like a failure of
+the pair. The check is in `FontConvertor` and not in the pairs, so a pair called directly, as the
+pair specs call it, returns its result unchecked. The conversion check converts through
+`FontConvertor` (`testing.md`, "The conversion check"), so a result of the corpus the validators
+reject fails it as it would fail the bot. A rejected result stays on disk, as what a failed pair
+wrote does. The answer of the validator names the result in `path` of its payload.
+
+The caps the WOFF and WOFF2 validators set on a source hold for a result too: 32 MiB of sfnt in a
+WOFF (`MAX_SFNT_SIZE_BYTES`), 30 MiB in a WOFF2 (`DECODER_BUFFER_SIZE_BYTES`). A valid result past
+them fails the conversion. It takes a source whose sfnt is that large: a TTF or an OTF over the caps
+with `BOT_MAX_DOWNLOAD_SIZE` raised past its default of 20 MB (its range has no upper bound,
+`ConfigValuesBuilder`), an MTX-compressed EOT, whose rebuilt sfnt has no cap of ours ("Known"), or a
+WOFF converted into WOFF2 at the default configuration: a WOFF source is held to 32 MiB of sfnt, so
+one under the download limit with an sfnt of 30–32 MiB passes the intake, and its WOFF2 result
+fails. This is accepted: the WOFF2 cap is the buffer of the decoder fontforge reads WOFF2 with, so
+fontforge could not read such a result back either, and caps of a result's own would be a second set
+of limits for a case no font of the corpus reaches.
+
+The rules of the SVG validator hold for an SVG result too, so the price of its rule "a `glyph` or
+`missing-glyph` has no child elements" ("The SVG validator") grows. fontforge writes the glyph of a
+stroked font as a `g` around a `path` (`svg.c`, for a CFF font whose top DICT has PaintType 2), and
+the sfnt validator does not read PaintType, so such an OTF, or a WOFF, WOFF2 or EOT carrying it,
+passes the intake and then fails its conversion into SVG. This is accepted by the owner, as the
+price of the rule on input was: stroked CFF fonts are rare, no font of the corpus is one, and
+keeping the rule off for a result would give the validator a second set of rules.
+
+The intermediate sfnt of the two-step EOT pairs meets a validator too, but after the codec. On
+packing `EotPacker.pack()` reads it and puts it into the envelope unchanged, so the check of the
+EOT result validates those bytes after the codec has read them (see "Signatures"). On unpacking it
+is the sfnt the EOT source carries, validated with the source.
 
 ## Reading SVG
 
@@ -264,9 +305,10 @@ EOT envelope would reject the whole file, so one and the same file would behave 
 pair to pair. A collection named `.ttf` or `.otf` is therefore rejected on input, the same way for
 every pair, before the chosen pair does any work.
 
-This does not make the version check of the codec redundant. The sfnt validator sees only the
-sources: a TTF or OTF file and the sfnt a WOFF, a WOFF2 or an EOT carries. One more file passes
-through the codec that the validator never saw: the intermediate sfnt from the engine on packing.
+This does not make the version check of the codec redundant. The sfnt validator sees the sources
+and the results: a TTF or OTF file and the sfnt a WOFF, a WOFF2 or an EOT carries. One more file
+passes through the codec before the validator sees it: the intermediate sfnt from the engine on
+packing, which `pack()` reads before the check of the result validates the envelope carrying it.
 The codec checks less than the validator: the header size, the version and the bounds of the
 tables it reads, not the rules below. But the two share one set of versions with two more checks,
 `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator` (`validator/woff/`) checks
@@ -295,15 +337,15 @@ unknown version with the codec's `InvalidSfnt`, while the validator names the ru
 it against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the
 reference. `FontValidatorResolver` gives it out for an SVG source. Its answer leaves the pair
 unchanged: `FontConvertor` wraps it in `FontConvertorError` as the cause, like any failure of the
-pair. A rejected source never reaches the engine. The engine's SVG output is not checked: the
-validator sees only the source.
+pair. A rejected source never reaches the engine. An SVG result meets it too ("Checking the
+result").
 
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
 `BrokenFont`. The order holds because the answers are given after one full pass over the document:
 a file that breaks off halfway is "not XML" even if its well-formed head already broke a font rule.
-Of several broken rules, `BrokenFont` names the first the pass met. Every answer names the source
-in `path` of its payload, as the answers of the other validators do, so that the log says which file
-was rejected.
+Of several broken rules, `BrokenFont` names the first the pass met. Every answer names the file
+it checked, a source or a result, in `path` of its payload, as the answers of the other validators
+do, so that the log says which file was rejected.
 
 - **Not XML.** The decoder is picked by the BOM: `FF FE` and `FE FF` are UTF-16, anything else
   UTF-8, since XML 1.0 §4.3.3 requires the BOM for UTF-16. `TextDecoder` runs with `fatal`, because
@@ -499,19 +541,19 @@ checks the container against W3C Recommendation "WOFF File Format 1.0" (13 Decem
 header (§4), the table directory (§5), the tables and their compression (§5, §6), and where the
 blocks lie in the file (§3, §7, §8), then the sfnt the container carries (below).
 `FontValidatorResolver` gives it out for a WOFF source, and its answer reaches the caller the way
-the SVG one does: as the cause of `FontConvertorError`, before the engine is called. The engine's
-WOFF output is not checked either. The validator exists because the engine does not refuse a broken
-container: of the 46 invalid container files of the W3C test suite fontforge 20230101 converts 34
-([#685](https://github.com/yuldashevsardor/telegram-bot/issues/685)).
+the SVG one does: as the cause of `FontConvertorError`, before the engine is called. A WOFF result
+meets it too ("Checking the result"). The validator exists because the engine does not refuse a
+broken container: of the 46 invalid container files of the W3C test suite fontforge 20230101
+converts 34 ([#685](https://github.com/yuldashevsardor/telegram-bot/issues/685)).
 
 About the container it answers with a subclass of `InvalidWoffFont`
 (`woff-font-validator.errors.ts`): `NotWoff` for a file shorter than the 44-byte header or without
 the `wOFF` signature, `BrokenWoff` for the first broken rule. The order in which the rules are
 checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
-`FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
-payload. Unlike the SVG answers, nothing in them is cut: the only text from the file they quote is
-a table tag, four bytes long. A zlib failure keeps the zlib error as the cause, since its message
-comes from zlib, not from the file.
+`FileHelper`, not with an answer about the font. Every answer names the file it checked in `path`
+of its payload. Unlike the SVG answers, nothing in them is cut: the only text from the file they
+quote is a table tag, four bytes long. A zlib failure keeps the zlib error as the cause, since its
+message comes from zlib, not from the file.
 
 A valid container is not yet a valid font: the standard "does not guarantee that the actual font
 data packaged in a valid WOFF container is in fact correct and usable" (§3), and fontforge
@@ -539,8 +581,8 @@ checks the container against W3C Recommendation "WOFF File Format 2.0" (8 August
 (§5), and the transformed tables (§5.1–§5.4). The header and the metadata block are those of "WOFF
 File Format 1.0" apart from Brotli (§3.2, §6), so some rules come from it. `FontValidatorResolver`
 gives it out for a WOFF2 source, and its answer reaches the caller the way the SVG one does: as the
-cause of `FontConvertorError`, before the engine is called. The engine's WOFF2 output is not
-checked.
+cause of `FontConvertorError`, before the engine is called. A WOFF2 result meets it too ("Checking
+the result").
 
 The validator exists because the engine does not answer a broken container. fontforge 20230101
 reads WOFF2 through Google's reference decoder, `libwoff2dec` 1.0.2. When the decoder refuses a
@@ -555,10 +597,10 @@ About the container it answers with a subclass of `InvalidWoff2Font`
 (`woff2-font-validator.errors.ts`): `NotWoff2` for a file shorter than the 48-byte header or without
 the `wOF2` signature, `BrokenWoff2` for the first broken rule. The order in which the rules are
 checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
-`FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
-payload. Nothing in them is cut: the only text from the file they quote is a table tag, four bytes
-long. A Brotli failure keeps the zlib error as the cause, since its message comes from Node's Brotli
-decoder, not from the file.
+`FileHelper`, not with an answer about the font. Every answer names the file it checked in `path`
+of its payload. Nothing in them is cut: the only text from the file they quote is a table tag, four
+bytes long. A Brotli failure keeps the zlib error as the cause, since its message comes from Node's
+Brotli decoder, not from the file.
 
 `GlyfReconstructor` (`validator/woff2/glyf-reconstructor.ts`) reads a transformed `glyf` glyph
 record by glyph record, rebuilds `glyf` and `loca` from it and a transformed `hmtx` from the `xMin`
@@ -615,20 +657,20 @@ fixed part of the header (§3), the blocks of its version (§3.1–§3.3), that 
 header directly and ends the file (§3), and `RootStringCheckSum` of version `0x00020002` (§4.3.2).
 It reads the header through `EotHeader` (see "EOT"). `FontValidatorResolver` gives it out for an EOT
 source, and its answer reaches the caller the way the SVG one does: as the cause of
-`FontConvertorError`, before the codec is called. The validator exists because neither the codec nor
-the engine refuses a broken envelope: of 27 variants of the fixture, each breaking one rule of the
-submission, `EotPacker.unpack()` rejected 12, and fontforge 20230101 converted the other 15 with
-exit 0 and every glyph, since it never sees the envelope
-([#617](https://github.com/yuldashevsardor/telegram-bot/issues/617)). On `eot → ttf` the engine is
-not called at all.
+`FontConvertorError`, before the codec is called. An EOT result meets it too ("Checking the
+result"). The validator exists because neither the codec nor the engine refuses a broken envelope:
+of 27 variants of the fixture, each breaking one rule of the submission, `EotPacker.unpack()`
+rejected 12, and fontforge 20230101 converted the other 15 with exit 0 and every glyph, since it
+never sees the envelope ([#617](https://github.com/yuldashevsardor/telegram-bot/issues/617)). On
+`eot → ttf` the engine is not called at all.
 
 About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`):
 `NotEot` for a file shorter than the 82-byte fixed part of the header or without the `MagicNumber`,
 `BrokenEot` for the first broken rule. The order in which the rules are checked is in the comment of
 `validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
-about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
-cut: the only things from the file they quote are numbers. Two answers keep another error as the
-cause. A file too short for a field the parse reads (the Padding or the size of a block, or
+about the font. Every answer names the file it checked in `path` of its payload. Nothing in the
+answers is cut: the only things from the file they quote are numbers. Two answers keep another error
+as the cause. A file too short for a field the parse reads (the Padding or the size of a block, or
 `EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`. A
 `FontData` that does not decode keeps the `InvalidEotPayload` of the decoder (below).
 
@@ -671,10 +713,10 @@ class comment of `SfntFontValidator`.
 
 `FontValidatorResolver` gives it out for a TTF and an OTF source alike. Its answer reaches the
 caller the way the SVG one does: as the cause of `FontConvertorError`, before the engine is called.
-The engine's TTF and OTF output is not checked. The validator exists because the engine does not
-refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place, fontforge 20230101
-converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8 with SIGSEGV
-([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+A TTF and an OTF result meet it too ("Checking the result"). The validator exists because the engine
+does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place, fontforge
+20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8 with
+SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.
 
@@ -682,9 +724,9 @@ It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`
 file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the
 first broken rule. The order in which the rules are checked is in the comment of `validateBytes()`.
 A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the
-font. Every answer names the source in `path` of its payload: for the sfnt a container carries, the
-WOFF, the WOFF2 or the EOT file. Nothing in the answers is cut: the only text from the file they
-quote is a table tag, four bytes long.
+font. Every answer names the file it checked in `path` of its payload: for the sfnt a container
+carries, the WOFF, the WOFF2 or the EOT file. Nothing in the answers is cut: the only text from the
+file they quote is a table tag, four bytes long.
 
 The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Four of them are
 ours, not the standard's, and the text of each says why:
@@ -856,9 +898,11 @@ absent from the table does not count as supported.
 
 - Temporary files are not deleted (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
-- The sources are read whole, and the domain sets no limit on the size of the file. What runs on the
-  event loop of the bot:
-  - SVG: the source is decoded and parsed whole, synchronously.
+- The sources and the results are read whole ("Checking the result"), and the domain sets no limit
+  on the size of the file. A source is held to the download limit of the bot, a result to nothing:
+  it is read before the bot's upload limit throws an oversized one away. What runs on the event loop
+  of the bot:
+  - SVG: the file is decoded and parsed whole, synchronously.
   - WOFF: the tables are inflated by the asynchronous `zlib.inflate`, off the event loop, but their
     checksums are summed and the sfnt is rebuilt from them on it. The 32 MiB cap bounds the inflated
     tables, not the file, and the rebuilt sfnt is a second copy of them of the same size.

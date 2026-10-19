@@ -17,42 +17,45 @@ import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-v
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
-import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
+import { NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
+import { InvalidPath, PermissionDenied, ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const datedWoffPath = /^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/;
 
-// The pairs are real, the engine is a stub. The choice of a pair and its input checks run here
-// end to end. What the engine does with the bytes is the subject of the pair specs.
+// The pairs are real, the engine is a stub. The choice of a pair, its input checks and the check of
+// the result run here end to end. What the engine does with the bytes is the subject of the pair
+// specs. By default the stub writes the fixture of the target format, which the check accepts.
 // Permissions are taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
 describe("FontConvertor", function () {
     let tempDir: string;
     let lockedDirs: Array<string>;
     let engineCalls: Array<string>;
+    let writeEngineResult: (toPath: string) => Promise<void>;
+    let resolver: FontValidatorResolver;
     let factory: ConvertorFactory;
 
     beforeEach(async function () {
         tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-convertor-"));
         lockedDirs = [];
         engineCalls = [];
+        writeEngineResult = (toPath: string): Promise<void> => fs.copyFile(fixture(path.extname(toPath).slice(1) as Extension), toPath);
 
         const fontForge = {
             convert: async (fromPath: string, toPath: string) => {
                 engineCalls.push(`${fromPath} -> ${toPath}`);
+                await writeEngineResult(toPath);
             },
         } as FontForge;
 
-        factory = new ConvertorFactory(
-            fontForge,
-            new FontValidatorResolver(
-                new SvgFontValidator(new SvgTextCodec()),
-                new WoffFontValidator(new SfntFontValidator()),
-                new Woff2FontValidator(new SfntFontValidator()),
-                new SfntFontValidator(),
-                new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
-            ),
-            new EotPacker(new EotPayloadDecoder()),
+        resolver = new FontValidatorResolver(
+            new SvgFontValidator(new SvgTextCodec()),
+            new WoffFontValidator(new SfntFontValidator()),
+            new Woff2FontValidator(new SfntFontValidator()),
+            new SfntFontValidator(),
+            new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
         );
+        factory = new ConvertorFactory(fontForge, resolver, new EotPacker(new EotPayloadDecoder()));
     });
 
     afterEach(async function () {
@@ -65,7 +68,10 @@ describe("FontConvertor", function () {
     });
 
     it("converts into a dated directory of the temp dir under a generated name", async function () {
-        const result = await new FontConvertor(factory, tempDir).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF });
+        const result = await new FontConvertor(factory, resolver, tempDir).convert({
+            originPath: fixture(Extension.TTF),
+            extension: Extension.WOFF,
+        });
 
         expect(path.relative(tempDir, result)).to.match(datedWoffPath);
         expect(engineCalls).to.deep.equal([`${fixture(Extension.TTF)} -> ${result}`]);
@@ -76,7 +82,7 @@ describe("FontConvertor", function () {
         const directory = path.join(tempDir, "Upper-Case");
         await fs.mkdir(directory);
 
-        const result = await new FontConvertor(factory, directory).convert({
+        const result = await new FontConvertor(factory, resolver, directory).convert({
             originPath: fixture(Extension.TTF),
             extension: Extension.WOFF,
         });
@@ -85,7 +91,7 @@ describe("FontConvertor", function () {
     });
 
     it("gives every conversion a new name", async function () {
-        const fontConvertor = new FontConvertor(factory, tempDir);
+        const fontConvertor = new FontConvertor(factory, resolver, tempDir);
         const params = { originPath: fixture(Extension.TTF), extension: Extension.WOFF };
 
         const first = await fontConvertor.convert(params);
@@ -99,7 +105,7 @@ describe("FontConvertor", function () {
             const originPath = await copyTtfFixture(filename);
 
             const error = await rejectionOf(() =>
-                new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.TTF }),
+                new FontConvertor(factory, resolver, tempDir).convert({ originPath: originPath, extension: Extension.TTF }),
             );
 
             // The class is not enough. There is no ttf → ttf pair, so without a check of its own
@@ -115,7 +121,10 @@ describe("FontConvertor", function () {
         it(`converts a source named ${filename} as a lowercase one`, async function () {
             const originPath = await copyTtfFixture(filename);
 
-            const result = await new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF });
+            const result = await new FontConvertor(factory, resolver, tempDir).convert({
+                originPath: originPath,
+                extension: Extension.WOFF,
+            });
 
             expect(engineCalls).to.deep.equal([`${originPath} -> ${result}`]);
         });
@@ -128,7 +137,7 @@ describe("FontConvertor", function () {
         const originPath = await copyTtfFixture("font.pfb");
 
         const error = await rejectionOf(() =>
-            new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF }),
+            new FontConvertor(factory, resolver, tempDir).convert({ originPath: originPath, extension: Extension.WOFF }),
         );
 
         expect(error).to.be.instanceOf(FontConvertorError);
@@ -142,11 +151,48 @@ describe("FontConvertor", function () {
         await fs.writeFile(originPath, Uint8Array.from([1, 2, 3, 4]));
 
         const error = await rejectionOf(() =>
-            new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF }),
+            new FontConvertor(factory, resolver, tempDir).convert({ originPath: originPath, extension: Extension.WOFF }),
         );
 
         expect(error).to.be.instanceOf(FontConvertorError);
         expect((error as FontConvertorError).cause).to.be.instanceOf(NotSfnt);
+    });
+
+    // fontforge exits with 0 and writes a TTF of 0 bytes for a font past the 65 535 glyphs of sfnt.
+    it("rejects an empty result of the engine", async function () {
+        writeEngineResult = (toPath: string): Promise<void> => fs.writeFile(toPath, new Uint8Array(0));
+
+        const error = await rejectionOf(() =>
+            new FontConvertor(factory, resolver, tempDir).convert({ originPath: fixture(Extension.OTF), extension: Extension.TTF }),
+        );
+
+        expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).cause).to.be.instanceOf(NotSfnt);
+        expect(engineCalls).to.have.lengthOf(1);
+    });
+
+    it("rejects a conversion the engine wrote no file for", async function () {
+        writeEngineResult = async (): Promise<void> => {};
+
+        const error = await rejectionOf(() =>
+            new FontConvertor(factory, resolver, tempDir).convert({ originPath: fixture(Extension.OTF), extension: Extension.TTF }),
+        );
+
+        expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).cause).to.be.instanceOf(ReadFailed);
+        expect(engineCalls).to.have.lengthOf(1);
+    });
+
+    it("rejects a result that is not a font of its target format", async function () {
+        writeEngineResult = (toPath: string): Promise<void> => fs.copyFile(fixture(Extension.TTF), toPath);
+
+        const error = await rejectionOf(() =>
+            new FontConvertor(factory, resolver, tempDir).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF }),
+        );
+
+        expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).cause).to.be.instanceOf(NotWoff);
+        expect(engineCalls).to.have.lengthOf(1);
     });
 
     // FileHelper.createDirectoriesByDate() checks the path, and its own spec pins the checks.
@@ -182,7 +228,7 @@ describe("FontConvertor", function () {
 
     async function expectRejection(directory: string, expected: Error): Promise<void> {
         const error = await rejectionOf(() =>
-            new FontConvertor(factory, directory).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF }),
+            new FontConvertor(factory, resolver, directory).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF }),
         );
 
         expect(error).to.be.instanceOf(expected.constructor);

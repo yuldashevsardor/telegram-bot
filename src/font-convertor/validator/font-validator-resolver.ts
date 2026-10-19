@@ -10,7 +10,8 @@ import { Tokens } from "app/shared/tokens";
 
 /**
  * Gives out the validator of a format. The validators are made once, by the container. Every pair
- * takes the one of its source format.
+ * takes the one of its source format, and `FontConvertor` the one of the target format for the
+ * result.
  */
 @injectable()
 export class FontValidatorResolver {

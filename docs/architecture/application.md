@@ -49,6 +49,7 @@ The call stands as the default of a constructor parameter, and the parameter nee
 ```ts
 public constructor(
     @inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory,
+    @inject<FontValidatorResolver>(Tokens.Font.Validator.Resolver) private readonly fontValidatorResolver: FontValidatorResolver,
     private readonly tempDir: string = configValue("tempDir"),
 ) {}
 ```
@@ -73,7 +74,7 @@ Two properties follow:
 
 - The value is read at construction, not on the first access to the property, so a failure of the
   configuration falls on the start.
-- A test passes its own value, `new FontConvertor(factory, "/tmp")`, without touching
+- A test passes its own value, `new FontConvertor(factory, resolver, "/tmp")`, without touching
   `ApplicationContext`. The former `@ConfigValue` needed the container to be up;
   `test/telegram/outbox/outbox-store.spec.ts` passes the limits of `OutboxStore` the same way.
 
