@@ -262,8 +262,7 @@ session is the album `NotAFileMiddleware` answered last (below).
      asked before the pair matrix changed: it is logged as a `warning` and gets no answer beyond
      step 1.
   4. `sendChatAction` with `upload_document`, through the outbox: the chat shows "отправляет
-     файл…" while the conversion runs. Telegram shows an action for five seconds at most, so for
-     `convert:all` it is sent again before each conversion after the first.
+     файл…" while the conversion runs.
   5. `TelegramFileDownloader` downloads the source again, as at the intake (its errors the same),
      once per press, and `FontConvertor` converts it into each target in turn. The downloaded source
      is removed whatever the outcome, a failed removal logged as a `warning`. A

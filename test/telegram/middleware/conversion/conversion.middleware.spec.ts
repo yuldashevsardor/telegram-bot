@@ -369,14 +369,11 @@ describe("ConversionMiddleware", function () {
     // docs/product/cjm.md, step 3: "Все форматы".
     describe("a press of all formats", function () {
         const sourceReply = { reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true } };
-        // Telegram shows a chat action for five seconds at most: one goes before the download and one
-        // before each of the four conversions after the first.
-        const uploadActions = Array<string>(5).fill("replyWithChatAction");
 
         it("sends every offered format as one album of documents in reply to the source, from one download", async function () {
             const { calls } = await run(realMiddleware(), press("convert:all", question(sourceMessage("MyFont.woff"))));
 
-            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", ...uploadActions, "replyWithMediaGroup"]);
+            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", "replyWithChatAction", "replyWithMediaGroup"]);
             expect(albumOf(calls).map((media) => media.type)).to.deep.equal(["document", "document", "document", "document", "document"]);
             expect(albumFilenames(calls)).to.deep.equal(["MyFont.ttf", "MyFont.otf", "MyFont.woff2", "MyFont.eot", "MyFont.svg"]);
             // No caption, as for a single format.
@@ -396,7 +393,7 @@ describe("ConversionMiddleware", function () {
 
             expect(calls.map((call) => call.method)).to.deep.equal([
                 "answerCallbackQuery",
-                ...uploadActions,
+                "replyWithChatAction",
                 "replyWithMediaGroup",
                 "reply",
             ]);
@@ -423,7 +420,12 @@ describe("ConversionMiddleware", function () {
                 press("convert:all", question(sourceMessage("MyFont.woff"))),
             );
 
-            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", ...uploadActions, "replyWithDocument", "reply"]);
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "replyWithDocument",
+                "reply",
+            ]);
             expect(documentOf(calls).filename).to.equal("MyFont.ttf");
             expect(calls.find((call) => call.method === "replyWithDocument")?.args[1]).to.deep.equal(sourceReply);
             expect(replyTexts(calls)).to.deep.equal(["Не получилось: OTF, WOFF2, EOT, SVG."]);
@@ -435,7 +437,7 @@ describe("ConversionMiddleware", function () {
                 press("convert:all", question(sourceMessage("MyFont.woff"))),
             );
 
-            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", ...uploadActions, "reply"]);
+            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", "replyWithChatAction", "reply"]);
             expect(replyTexts(calls)).to.deep.equal(["Не получилось: TTF, OTF, WOFF2, EOT, SVG."]);
             expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
         });

@@ -79,7 +79,7 @@ export class ConversionMiddleware extends Middleware {
         await ctx.replyWithChatAction("upload_document");
 
         const sourceFontPath = await this.fileDownloader.download(ctx.api, source.document.file_id, conversion.sourceExtension);
-        const outcome = await this.convert(ctx, sourceFontPath, conversion);
+        const outcome = await this.convert(sourceFontPath, conversion);
         const replyOptions = {
             // The source deleted meanwhile would fail a reply that requires it, and the failed call would
             // block the chat in the outbox.
@@ -171,17 +171,11 @@ export class ConversionMiddleware extends Middleware {
     }
 
     // The downloaded source serves this press alone: the next press downloads it again.
-    private async convert(ctx: Context, sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
+    private async convert(sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
         const outcome: Outcome = { results: [], failedExtensions: [] };
 
         try {
-            for (const [index, targetExtension] of conversion.targetExtensions.entries()) {
-                // Telegram shows a chat action for five seconds at most, so each conversion of "all
-                // formats" renews it. The first one has the action sent before the download.
-                if (index > 0) {
-                    await ctx.replyWithChatAction("upload_document");
-                }
-
+            for (const targetExtension of conversion.targetExtensions) {
                 const resultFontPath = await this.convertTo(sourceFontPath, conversion.sourceExtension, targetExtension);
 
                 if (resultFontPath === undefined) {
