@@ -188,7 +188,7 @@ describe("ConversionMiddleware", function () {
 
     // Converts as the real convertor does, and fails on our side for the targets named.
     function convertorFailingFor(failingExtensions: Extension[]): FontConvertor {
-        const convertor = realConvertor();
+        const realFontConvertor = realConvertor();
 
         return {
             convert: async (params: ConvertParams): Promise<string> => {
@@ -196,7 +196,7 @@ describe("ConversionMiddleware", function () {
                     throw new FontConvertorError("The engine failed.");
                 }
 
-                return convertor.convert(params);
+                return realFontConvertor.convert(params);
             },
         } as unknown as FontConvertor;
     }
@@ -680,7 +680,7 @@ describe("ConversionMiddleware", function () {
         // would never be sent.
         it("removes the results already made when an error that is no failure of the conversion stops it", async function () {
             const error = new Error("The disk is gone.");
-            const convertor = realConvertor();
+            const realFontConvertor = realConvertor();
             const resultFontPaths: string[] = [];
             const brokenConvertor = {
                 convert: async (params: ConvertParams): Promise<string> => {
@@ -688,7 +688,7 @@ describe("ConversionMiddleware", function () {
                         throw error;
                     }
 
-                    const resultFontPath = await convertor.convert(params);
+                    const resultFontPath = await realFontConvertor.convert(params);
                     resultFontPaths.push(resultFontPath);
 
                     return resultFontPath;

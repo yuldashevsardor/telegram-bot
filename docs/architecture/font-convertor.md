@@ -126,7 +126,18 @@ of that format meets, and its rejection becomes the cause of `FontConvertorError
 the pair. The check is in `FontConvertor` and not in the pairs, so a pair called directly, as the
 specs and the conversion check call it, returns its result unchecked. The conversion check validates
 every result of the corpus itself (`testing.md`, "The conversion check"): a result the validators
-reject would fail the bot. A rejected result stays on disk, as what a failed pair wrote does.
+reject would fail the bot. A rejected result stays on disk, as what a failed pair wrote does. The
+answer of the validator names the result in `path` of its payload.
+
+The caps the WOFF and WOFF2 validators set on a source hold for a result too: 32 MiB of sfnt in a
+WOFF (`MAX_SFNT_SIZE_BYTES`), 30 MiB in a WOFF2 (`DECODER_BUFFER_SIZE_BYTES`). A valid result past
+them fails the conversion. It takes a source whose sfnt is that large: a TTF or an OTF over the
+caps with `BOT_MAX_DOWNLOAD_SIZE` raised past its default of 20 MB (its range has no upper bound,
+`ConfigValuesBuilder`), or an MTX-compressed EOT, whose rebuilt sfnt has no cap of ours ("Known").
+A WOFF or WOFF2 source is held to the same caps on input. This is accepted: the WOFF2 cap is the
+buffer of the decoder fontforge reads WOFF2 with, so fontforge could not read such a result back
+either, and caps of a result's own would be a second set of limits for a case no font of the corpus
+reaches.
 
 The intermediate sfnt of the two-step EOT pairs is not checked by a validator: the codec reads it
 (see "Signatures").
@@ -321,9 +332,9 @@ result").
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
 `BrokenFont`. The order holds because the answers are given after one full pass over the document:
 a file that breaks off halfway is "not XML" even if its well-formed head already broke a font rule.
-Of several broken rules, `BrokenFont` names the first the pass met. Every answer names the source
-in `path` of its payload, as the answers of the other validators do, so that the log says which file
-was rejected.
+Of several broken rules, `BrokenFont` names the first the pass met. Every answer names the file
+it checked, a source or a result, in `path` of its payload, as the answers of the other validators
+do, so that the log says which file was rejected.
 
 - **Not XML.** The decoder is picked by the BOM: `FF FE` and `FE FF` are UTF-16, anything else
   UTF-8, since XML 1.0 §4.3.3 requires the BOM for UTF-16. `TextDecoder` runs with `fatal`, because
@@ -528,10 +539,10 @@ About the container it answers with a subclass of `InvalidWoffFont`
 (`woff-font-validator.errors.ts`): `NotWoff` for a file shorter than the 44-byte header or without
 the `wOFF` signature, `BrokenWoff` for the first broken rule. The order in which the rules are
 checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
-`FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
-payload. Unlike the SVG answers, nothing in them is cut: the only text from the file they quote is
-a table tag, four bytes long. A zlib failure keeps the zlib error as the cause, since its message
-comes from zlib, not from the file.
+`FileHelper`, not with an answer about the font. Every answer names the file it checked in `path`
+of its payload. Unlike the SVG answers, nothing in them is cut: the only text from the file they
+quote is a table tag, four bytes long. A zlib failure keeps the zlib error as the cause, since its
+message comes from zlib, not from the file.
 
 A valid container is not yet a valid font: the standard "does not guarantee that the actual font
 data packaged in a valid WOFF container is in fact correct and usable" (§3), and fontforge
@@ -575,10 +586,10 @@ About the container it answers with a subclass of `InvalidWoff2Font`
 (`woff2-font-validator.errors.ts`): `NotWoff2` for a file shorter than the 48-byte header or without
 the `wOF2` signature, `BrokenWoff2` for the first broken rule. The order in which the rules are
 checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
-`FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
-payload. Nothing in them is cut: the only text from the file they quote is a table tag, four bytes
-long. A Brotli failure keeps the zlib error as the cause, since its message comes from Node's Brotli
-decoder, not from the file.
+`FileHelper`, not with an answer about the font. Every answer names the file it checked in `path`
+of its payload. Nothing in them is cut: the only text from the file they quote is a table tag, four
+bytes long. A Brotli failure keeps the zlib error as the cause, since its message comes from Node's
+Brotli decoder, not from the file.
 
 `GlyfReconstructor` (`validator/woff2/glyf-reconstructor.ts`) reads a transformed `glyf` glyph
 record by glyph record, rebuilds `glyf` and `loca` from it and a transformed `hmtx` from the `xMin`
@@ -635,7 +646,8 @@ fixed part of the header (§3), the blocks of its version (§3.1–§3.3), that 
 header directly and ends the file (§3), and `RootStringCheckSum` of version `0x00020002` (§4.3.2).
 It reads the header through `EotHeader` (see "EOT"). `FontValidatorResolver` gives it out for an EOT
 source, and its answer reaches the caller the way the SVG one does: as the cause of
-`FontConvertorError`, before the codec is called. The validator exists because neither the codec nor
+`FontConvertorError`, before the codec is called. An EOT result meets it too ("Checking the
+result"). The validator exists because neither the codec nor
 the engine refuses a broken envelope: of 27 variants of the fixture, each breaking one rule of the
 submission, `EotPacker.unpack()` rejected 12, and fontforge 20230101 converted the other 15 with
 exit 0 and every glyph, since it never sees the envelope
@@ -646,7 +658,8 @@ About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-val
 `NotEot` for a file shorter than the 82-byte fixed part of the header or without the `MagicNumber`,
 `BrokenEot` for the first broken rule. The order in which the rules are checked is in the comment of
 `validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
-about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
+about the font. Every answer names the file it checked in `path` of its payload. Nothing in the
+answers is
 cut: the only things from the file they quote are numbers. Two answers keep another error as the
 cause. A file too short for a field the parse reads (the Padding or the size of a block, or
 `EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`. A
@@ -702,7 +715,8 @@ It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`
 file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the
 first broken rule. The order in which the rules are checked is in the comment of `validateBytes()`.
 A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the
-font. Every answer names the source in `path` of its payload: for the sfnt a container carries, the
+font. Every answer names the file it checked in `path` of its payload: for the sfnt a container
+carries, the
 WOFF, the WOFF2 or the EOT file. Nothing in the answers is cut: the only text from the file they
 quote is a table tag, four bytes long.
 
@@ -876,9 +890,11 @@ absent from the table does not count as supported.
 
 - Temporary files are not deleted (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
-- The sources are read whole, and the domain sets no limit on the size of the file. What runs on the
-  event loop of the bot:
-  - SVG: the source is decoded and parsed whole, synchronously.
+- The sources and the results are read whole ("Checking the result"), and the domain sets no limit
+  on the size of the file. A source is held to the download limit of the bot, a result to nothing:
+  it is read before the bot's upload limit throws an oversized one away. What runs on the event loop
+  of the bot:
+  - SVG: the file is decoded and parsed whole, synchronously.
   - WOFF: the tables are inflated by the asynchronous `zlib.inflate`, off the event loop, but their
     checksums are summed and the sfnt is rebuilt from them on it. The 32 MiB cap bounds the inflated
     tables, not the file, and the rebuilt sfnt is a second copy of them of the same size.
