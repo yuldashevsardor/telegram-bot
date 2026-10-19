@@ -130,6 +130,13 @@ name-keyed font, each glyph named after its CID (`Identity.1` in Noto Sans CJK S
 gets all of them. An OTF result is name-keyed CFF too, not CID-keyed. The conversion check reads a
 CID-keyed source flattened the same way (`testing.md`, "The conversion check").
 
+The private dictionaries of the sub-fonts do not survive the flattening: a name-keyed CFF has one,
+so the CFF hints of an OTF or WOFF result keep one set of alignment zones for every glyph. In the
+fixture of the check `Alphabetic` has the `BlueValues` `[-13, 0, 544, 557, 735, 747]`,
+`Proportional` `[-13, 0, 543, 557, 733, 747]`, the ideographs and Hangul `[-250, -250, 1100, 1100]`,
+and the flattened result `[-20, 0, 543, 543, 733, 733]`. Hinting is not among the facts the check
+compares, so it does not see this.
+
 Flattening holds up to the names a name-keyed CFF can store: its String INDEX, which holds every
 glyph name, counts its strings in 16 bits. The region subset `NotoSansSC-Regular.otf` of noto-cjk,
 31 036 glyphs, converts whole into every format. The whole Noto Sans CJK SC, 65 535 glyphs, does

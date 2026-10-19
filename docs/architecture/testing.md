@@ -220,9 +220,10 @@ The check runs apart from the main set: the `test:fonts` npm script starts mocha
 
 `make check` runs it after the tests with coverage (the `check` npm script); `make test`,
 `make coverage` and `make mutation` do not. The PR review runs it under the `test-fonts` gate
-(`docs/agents/review-gates.md`). On 2026-10-09 its 90 conversions, each of the 18 font fixtures
-into the 5 other formats, took 24–25 s in mocha under a load average of 25, and
-`make test-fonts` took 26–30 s with the start of the container.
+(`docs/agents/review-gates.md`). On 2026-10-09, with 18 font fixtures, its 90 conversions, each
+fixture into the 5 other formats, took 24–25 s in mocha under a load average of 25, and
+`make test-fonts` took 26–30 s with the start of the container. The fixtures added since are not in
+that measurement.
 
 ## Mutation testing
 

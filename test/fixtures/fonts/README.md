@@ -114,11 +114,11 @@ depend on the network.
 
 Font Awesome 4.7 ships no licence file: its `README.md` names the SIL OFL 1.1 for the font, and
 `font-awesome/OFL.txt` is the licence text with the copyright of the font's `name` table. The
-others carry the licence file of their source: `OFL.txt` of the directory in google/fonts, of the
-Noto zip, `LICENSE.md` of the Source Sans repository at the tag, kept as `LICENSE.txt`: the width
-check of `make check` takes every `*.md` as prose, and `LICENSE` of the noto-cjk repository at its
-tag, kept as `LICENSE.txt` too. Pacifico's licence comes from `ofl/pacifico/OFL.txt` of google/fonts
-at the same commit as Bungee Spice and Inter.
+others carry the licence file of their source: `OFL.txt` of the directory in google/fonts and of
+the Noto zip, `LICENSE` of the noto-cjk repository at its tag, kept as `LICENSE.txt` like the rest,
+and `LICENSE.md` of the Source Sans repository at the tag, kept as `LICENSE.txt`: the width check of
+`make check` takes every `*.md` as prose. Pacifico's licence comes from `ofl/pacifico/OFL.txt` of
+google/fonts at the same commit as Bungee Spice and Inter.
 
 The Pacifico file is the `latin` subset of what the CSS API serves to a current Chrome:
 `https://fonts.googleapis.com/css2?family=Pacifico` lists one WOFF2 per subset, and only for a
