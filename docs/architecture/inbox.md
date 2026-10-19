@@ -467,7 +467,7 @@ they answer the sender (see "The answer to the sender"): after an `Undeliverable
 is logged at `error` by the store, with the group, the update and the error; a fenced completion
 logs no error. The inbox logs nothing else: a failure that does not block leaves its error in the
 `attempts` of the update and in no log line of the inbox, so during an outage of PostgreSQL the
-retries show only in the inbox tables. A 413 is logged by the outbox (see "Error classes").
+retries show only in the inbox tables. Where a 413 is logged is in "Error classes".
 
 Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the attempt being handled
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of
@@ -522,7 +522,7 @@ that is retried gets none, so the answer goes out once per blocking, not once pe
 that does not block gets none either. A chat the bot cannot reach takes no message. After a 413
 the chat would take one, and it gets none by the owner's choice
 ([PR #1028](https://github.com/yuldashevsardor/telegram-bot/pull/1028)): the callers keep under the
-upload limit, so a 413 is a bug the `error` of the outbox reports, and an answer to a failure that
+upload limit, so a 413 is a bug, logged as "Error classes" says, and an answer to a failure that
 does not block would need a path of its own for it. The person gets what went out before the 413.
 After a `ReplyTimeout` the reply of the handler is still in the outbox and may go out yet, and the
 answer would follow it into the same chat; when the chat is blocked in the outbox, it would wait
