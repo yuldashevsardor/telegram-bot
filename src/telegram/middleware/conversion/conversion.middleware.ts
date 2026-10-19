@@ -187,9 +187,11 @@ export class ConversionMiddleware extends Middleware {
                     // The outbox removes the files it sends, and this one never reaches it.
                     await this.removeFile(resultFontPath);
                     outcome.tooLargeExtensions.push(targetExtension);
-                } else {
-                    outcome.results.push(result);
+
+                    continue;
                 }
+
+                outcome.results.push(result);
             }
         } catch (error) {
             // The results already made would never reach the outbox, which removes the files it sends.
@@ -248,8 +250,20 @@ export class ConversionMiddleware extends Middleware {
 
     // The results go in the order of the buttons, as many to a call as fit in one request.
     private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyOptions: ReplyOptions): Promise<void> {
-        for (const batch of this.toRequestBatches(results)) {
-            await this.sendBatch(ctx, sourceFilename, batch, replyOptions);
+        const batches = this.toRequestBatches(results);
+
+        for (const [batchIndex, batch] of batches.entries()) {
+            try {
+                await this.sendBatch(ctx, sourceFilename, batch, replyOptions);
+            } catch (error) {
+                // The batches after a failed call never reach the outbox, which removes the files it
+                // sends. The failed one may have: a call that timed out is still in it.
+                for (const unsentResult of batches.slice(batchIndex + 1).flat()) {
+                    await this.removeFile(unsentResult.resultFontPath);
+                }
+
+                throw error;
+            }
         }
     }
 

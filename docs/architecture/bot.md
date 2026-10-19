@@ -278,7 +278,8 @@ session is the album `NotAFileMiddleware` answered last (below).
      (`MyFont.woff` → `MyFont.ttf`); the domain names the file at random. The results go in the
      order of the buttons, as many to a call as fit under the same limit: two and more with
      `sendMediaGroup` as an album of documents, a single one with `sendDocument`, in reply to the
-     source and without a caption. The outbox removes the files once the call is sent
+     source and without a caption. When a call fails, the results of the calls after it are removed
+     and the error goes on to the inbox. The outbox removes the files once the call is sent
      ([`outbox.md`](./outbox.md), "Sending").
   8. The failed targets, if any, are named in one reply after the results: for a single format
      `conversion-middleware-failed`, for `convert:all` `conversion-middleware-failed-formats`,

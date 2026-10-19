@@ -28,6 +28,8 @@ const SOURCE_MESSAGE_ID = 42;
 const QUESTION_MESSAGE_ID = 43;
 const MAX_UPLOAD_SIZE_MB = 50;
 const BYTES_PER_MB = 1024 * 1024;
+// The margin ConversionMiddleware keeps under the upload limit for the multipart around the files.
+const REQUEST_OVERHEAD_MARGIN_BYTES = 64 * 1024;
 
 // A message as a reply carries it: without a reply of its own.
 type ReplyMessage = NonNullable<Message["reply_to_message"]>;
@@ -118,11 +120,12 @@ describe("ConversionMiddleware", function () {
     }
 
     // Runs the update through the middleware the way Bot attaches it, with the calls of the context
-    // recorded instead of sent. answerPress stands for the answer of Telegram to answerCallbackQuery.
+    // recorded instead of sent. answerPress stands for the answer of Telegram to answerCallbackQuery,
+    // mediaGroupError for a failure of the first album the middleware sends.
     async function run(
         middleware: ConversionMiddleware,
         update: Update,
-        options: { locale?: Locale; answerPress?: () => Promise<true> } = {},
+        options: { locale?: Locale; answerPress?: () => Promise<true>; mediaGroupError?: Error } = {},
     ): Promise<PressRun> {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const ctx = new GrammyContext(update, new Api("test-token"), ME) as Context;
@@ -144,7 +147,15 @@ describe("ConversionMiddleware", function () {
         ctx.replyWithChatAction = record("replyWithChatAction") as Context["replyWithChatAction"];
         ctx.reply = record("reply") as Context["reply"];
         ctx.replyWithDocument = record("replyWithDocument") as Context["replyWithDocument"];
-        ctx.replyWithMediaGroup = record("replyWithMediaGroup") as Context["replyWithMediaGroup"];
+        ctx.replyWithMediaGroup = (async (...args: unknown[]) => {
+            calls.push({ method: "replyWithMediaGroup", args: args });
+
+            if (options.mediaGroupError !== undefined) {
+                throw options.mediaGroupError;
+            }
+
+            return {};
+        }) as Context["replyWithMediaGroup"];
 
         const composer = new Composer<Context>();
         middleware.setup(composer);
@@ -306,7 +317,7 @@ describe("ConversionMiddleware", function () {
     describe("results against the upload limit", function () {
         const maxUploadSizeMb = 1;
         // The files of one request: the limit less the margin the middleware keeps for the multipart.
-        const maxRequestFilesBytes = BYTES_PER_MB - 64 * 1024;
+        const maxRequestFilesBytes = BYTES_PER_MB - REQUEST_OVERHEAD_MARGIN_BYTES;
         const tooLargeSvg = "Не получилось отправить SVG: больше 1 МБ — Telegram не даёт ботам отправлять такие файлы.";
 
         // Writes a result of the size given for its target, so that the spec knows each size before the run.
@@ -445,6 +456,35 @@ describe("ConversionMiddleware", function () {
                 ["MyFont.woff2"],
                 ["MyFont.eot", "MyFont.svg"],
             ]);
+        });
+
+        it("removes the results of the calls after a failed one and lets the error through", async function () {
+            const error = new Error("The outbox did not answer in time.");
+            const thirdOfLimitBytes = Math.floor(maxRequestFilesBytes / 3);
+            const resultFontPaths: string[] = [];
+            const convertor = sizedConvertor(
+                {
+                    [Extension.TTF]: thirdOfLimitBytes,
+                    [Extension.OTF]: thirdOfLimitBytes,
+                    [Extension.WOFF2]: thirdOfLimitBytes,
+                    [Extension.EOT]: thirdOfLimitBytes,
+                    [Extension.SVG]: thirdOfLimitBytes,
+                },
+                resultFontPaths,
+            );
+
+            const caught = await run(
+                middlewareWith(convertor, maxUploadSizeMb),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+                {
+                    mediaGroupError: error,
+                },
+            ).catch((rejection: unknown) => rejection);
+
+            expect(caught).to.equal(error);
+            // The first call carries TTF, OTF and WOFF2; it may still be sent, so its files stay for the outbox.
+            const isKept = await Promise.all(resultFontPaths.map(async (resultFontPath) => exists(resultFontPath)));
+            expect(isKept).to.deep.equal([true, true, true, false, false]);
         });
 
         it("tells it in the locale of the update", async function () {
