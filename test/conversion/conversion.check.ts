@@ -29,7 +29,8 @@ type FontFixture = { relativePath: string; extension: Extension };
 describe("Conversion of the fixtures", function () {
     this.timeout(CASE_TIMEOUT_MS);
 
-    const factory = realConvertorFactory(realFontValidatorResolver());
+    const resolver = realFontValidatorResolver();
+    const factory = realConvertorFactory(resolver);
     const reader = new FontFactsReader(new EotPacker(new EotPayloadDecoder()), new SvgFontPreparer(new SvgTextCodec()), FONT_FORGE_PATH);
     const comparator = new FontFactsComparator();
     const extensions = factory.getSupportedExtensions();
@@ -55,6 +56,8 @@ describe("Conversion of the fixtures", function () {
                 const resultPath = path.join(workDir, `result.${toExtension}`);
 
                 await factory.get(fixture.extension, toExtension).convert(sourcePath, resultPath);
+                // FontConvertor rejects a result its validator does not accept, so the bot would fail it.
+                await resolver.get(toExtension).validate(resultPath);
 
                 let expectedFacts = await reader.read(sourcePath, workDir);
 

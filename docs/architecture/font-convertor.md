@@ -13,6 +13,8 @@ FontConvertor.convert({ originPath, extension })
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
     source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
     argument (SvgFontPreparer, "Reading SVG")
+  → the validator of the target format accepts the result (FontValidatorResolver), otherwise
+    FontConvertorError ("Checking the result")
 ```
 
 ## EOT
@@ -111,6 +113,23 @@ the corpus it prints 2.4 MB and exits with 0. `execFile` keeps the whole output 
 `maxBuffer`, 1 MiB by default, so under it the bot failed such a font in every format, throwing away
 the written result ([#912](https://github.com/yuldashevsardor/telegram-bot/issues/912)). The tail
 is what goes into the message of `ProcessFailed`, so the error stays bounded too.
+
+## Checking the result
+
+A zero exit code of the engine does not mean a font was written. Past the 65 535 glyphs of sfnt
+fontforge 20230101 writes a TTF of 0 bytes and exits with 0: it prints "the 'sfnt' format is
+currently limited to 65535 glyphs, and your font has 65537 of them", since the TrueType output adds
+glyphs of its own. Measured on the flattened Noto Sans CJK SC, an OTF of 65 535 glyphs
+([#1025](https://github.com/yuldashevsardor/telegram-bot/issues/1025)). So after the pair
+`FontConvertor.convert()` hands the result to the validator of the target format, the one a source
+of that format meets, and its rejection becomes the cause of `FontConvertorError`, like a failure of
+the pair. The check is in `FontConvertor` and not in the pairs, so a pair called directly, as the
+specs and the conversion check call it, returns its result unchecked. The conversion check validates
+every result of the corpus itself (`testing.md`, "The conversion check"): a result the validators
+reject would fail the bot. A rejected result stays on disk, as what a failed pair wrote does.
+
+The intermediate sfnt of the two-step EOT pairs is not checked by a validator: the codec reads it
+(see "Signatures").
 
 ## Reading SVG
 
@@ -264,9 +283,10 @@ EOT envelope would reject the whole file, so one and the same file would behave 
 pair to pair. A collection named `.ttf` or `.otf` is therefore rejected on input, the same way for
 every pair, before the chosen pair does any work.
 
-This does not make the version check of the codec redundant. The sfnt validator sees only the
-sources: a TTF or OTF file and the sfnt a WOFF, a WOFF2 or an EOT carries. One more file passes
-through the codec that the validator never saw: the intermediate sfnt from the engine on packing.
+This does not make the version check of the codec redundant. The sfnt validator sees the sources
+and the results: a TTF or OTF file and the sfnt a WOFF, a WOFF2 or an EOT carries. One more file
+passes through the codec that the validator never saw: the intermediate sfnt from the engine on
+packing.
 The codec checks less than the validator: the header size, the version and the bounds of the
 tables it reads, not the rules below. But the two share one set of versions with two more checks,
 `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator` (`validator/woff/`) checks
@@ -295,8 +315,8 @@ unknown version with the codec's `InvalidSfnt`, while the validator names the ru
 it against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the
 reference. `FontValidatorResolver` gives it out for an SVG source. Its answer leaves the pair
 unchanged: `FontConvertor` wraps it in `FontConvertorError` as the cause, like any failure of the
-pair. A rejected source never reaches the engine. The engine's SVG output is not checked: the
-validator sees only the source.
+pair. A rejected source never reaches the engine. An SVG result meets it too ("Checking the
+result").
 
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
 `BrokenFont`. The order holds because the answers are given after one full pass over the document:
@@ -499,10 +519,10 @@ checks the container against W3C Recommendation "WOFF File Format 1.0" (13 Decem
 header (§4), the table directory (§5), the tables and their compression (§5, §6), and where the
 blocks lie in the file (§3, §7, §8), then the sfnt the container carries (below).
 `FontValidatorResolver` gives it out for a WOFF source, and its answer reaches the caller the way
-the SVG one does: as the cause of `FontConvertorError`, before the engine is called. The engine's
-WOFF output is not checked either. The validator exists because the engine does not refuse a broken
-container: of the 46 invalid container files of the W3C test suite fontforge 20230101 converts 34
-([#685](https://github.com/yuldashevsardor/telegram-bot/issues/685)).
+the SVG one does: as the cause of `FontConvertorError`, before the engine is called. A WOFF result
+meets it too ("Checking the result"). The validator exists because the engine does not refuse a
+broken container: of the 46 invalid container files of the W3C test suite fontforge 20230101
+converts 34 ([#685](https://github.com/yuldashevsardor/telegram-bot/issues/685)).
 
 About the container it answers with a subclass of `InvalidWoffFont`
 (`woff-font-validator.errors.ts`): `NotWoff` for a file shorter than the 44-byte header or without
@@ -539,8 +559,8 @@ checks the container against W3C Recommendation "WOFF File Format 2.0" (8 August
 (§5), and the transformed tables (§5.1–§5.4). The header and the metadata block are those of "WOFF
 File Format 1.0" apart from Brotli (§3.2, §6), so some rules come from it. `FontValidatorResolver`
 gives it out for a WOFF2 source, and its answer reaches the caller the way the SVG one does: as the
-cause of `FontConvertorError`, before the engine is called. The engine's WOFF2 output is not
-checked.
+cause of `FontConvertorError`, before the engine is called. A WOFF2 result meets it too ("Checking
+the result").
 
 The validator exists because the engine does not answer a broken container. fontforge 20230101
 reads WOFF2 through Google's reference decoder, `libwoff2dec` 1.0.2. When the decoder refuses a
@@ -671,10 +691,10 @@ class comment of `SfntFontValidator`.
 
 `FontValidatorResolver` gives it out for a TTF and an OTF source alike. Its answer reaches the
 caller the way the SVG one does: as the cause of `FontConvertorError`, before the engine is called.
-The engine's TTF and OTF output is not checked. The validator exists because the engine does not
-refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place, fontforge 20230101
-converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8 with SIGSEGV
-([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+A TTF and an OTF result meet it too ("Checking the result"). The validator exists because the engine
+does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place, fontforge
+20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8 with
+SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.
 

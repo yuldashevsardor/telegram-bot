@@ -112,7 +112,9 @@ describe("ConversionMiddleware", function () {
     }
 
     function realConvertor(): FontConvertor {
-        return new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
+        const resolver = realFontValidatorResolver();
+
+        return new FontConvertor(realConvertorFactory(resolver), resolver, tempDir);
     }
 
     function realMiddleware(): ConversionMiddleware {
@@ -186,7 +188,7 @@ describe("ConversionMiddleware", function () {
 
     // Converts as the real convertor does, and fails on our side for the targets named.
     function convertorFailingFor(failingExtensions: Extension[]): FontConvertor {
-        const realConvertor = new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
+        const convertor = realConvertor();
 
         return {
             convert: async (params: ConvertParams): Promise<string> => {
@@ -194,7 +196,7 @@ describe("ConversionMiddleware", function () {
                     throw new FontConvertorError("The engine failed.");
                 }
 
-                return realConvertor.convert(params);
+                return convertor.convert(params);
             },
         } as unknown as FontConvertor;
     }
@@ -678,7 +680,7 @@ describe("ConversionMiddleware", function () {
         // would never be sent.
         it("removes the results already made when an error that is no failure of the conversion stops it", async function () {
             const error = new Error("The disk is gone.");
-            const realConvertor = new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
+            const convertor = realConvertor();
             const resultFontPaths: string[] = [];
             const brokenConvertor = {
                 convert: async (params: ConvertParams): Promise<string> => {
@@ -686,7 +688,7 @@ describe("ConversionMiddleware", function () {
                         throw error;
                     }
 
-                    const resultFontPath = await realConvertor.convert(params);
+                    const resultFontPath = await convertor.convert(params);
                     resultFontPaths.push(resultFontPath);
 
                     return resultFontPath;
