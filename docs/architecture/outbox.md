@@ -834,7 +834,13 @@ it `done`, and only then:
 
 - a failed message keeps them: a person may put it back to `pending` by hand (see "Tables"), and
   without its file it would fail at once and block its chat again (see "Error classes"). A failed
-  message is never deleted either (see "Cleanup"), so nothing removes its files;
+  message is never deleted either (see "Cleanup"), so nothing removes its files. A message failed
+  by a 413 keeps them too, although sent again it gets the same 413 until the Bot API takes a
+  larger request (see "Error classes"): the file shows what was over the limit, and a 413 is an
+  incident a person fixes anyway. The cost is on the disk. The chat is not blocked, so the person
+  can ask for the same conversion again, and each request converts anew and leaves one more set of
+  files after the same 413, until the cause of the 413 is fixed; the `error` of `failTooLarge()`
+  reports each of them;
 - a retried message keeps them for its next attempt;
 - a fenced completion keeps them: `markAsDone()` returns `false` when it changed nothing (see
   "Completions"). Another completion has changed the message already: the recovery of its lease
