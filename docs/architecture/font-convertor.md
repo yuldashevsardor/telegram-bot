@@ -279,9 +279,9 @@ unencoded on the way back, as SVG 1.1 reads it.
 
 ## Writing SVG
 
-A pair into SVG runs `FontForge.convertToSvgScript` instead of `convertScript`. fontforge 20230101
-writes a glyph into one `<glyph>` element and leaves its other code points out (`svg_sfdump` of its
-`svg.c`):
+A pair into SVG runs `FontForge.convertToSvgScript` instead of `convertFlattenedScript`. fontforge
+20230101 writes a glyph into one `<glyph>` element and leaves its other code points out
+(`svg_sfdump` of its `svg.c`):
 
 - a glyph with a ligature of a `liga` or `rlig` lookup, whose components all have code points,
   goes under the components alone. An icon font with ligatures loses every code point this way:

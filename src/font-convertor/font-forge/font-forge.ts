@@ -37,7 +37,7 @@ export class FontForge {
     // holds in the largest fonts (docs/architecture/font-convertor.md, "CID-keyed fonts").
     private readonly flattenCidFontScript = ["if font.is_cid:", "    font.cidFlatten()"];
     private readonly convertToOtfScript = [...this.openFontAndUnencodeGlyphsScript, "font.generate(sys.argv[2])"].join("\n");
-    private readonly convertScript = [
+    private readonly convertFlattenedScript = [
         ...this.openFontAndUnencodeGlyphsScript,
         ...this.flattenCidFontScript,
         "font.generate(sys.argv[2])",
@@ -156,7 +156,7 @@ export class FontForge {
             return this.convertToOtfScript;
         }
 
-        return this.convertScript;
+        return this.convertFlattenedScript;
     }
 
     /**

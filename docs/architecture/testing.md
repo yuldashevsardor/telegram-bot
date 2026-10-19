@@ -200,9 +200,9 @@ not show on the source side:
   alike. That the indexes find the right glyphs is checked by `font-forge.spec.ts`, not here.
 - A CID-keyed font is read flattened with `font.cidFlatten()`, as the bot flattens it
   (`font-convertor.md`, "CID-keyed fonts"), so a glyph the flattening lost would be missing on both
-  sides alike. That glyphs of sub-fonts past the first reach the result, five characters of five
-  sub-fonts, is checked by `font-forge.spec.ts`, which reads the SVG result with saxes, not with
-  fontforge.
+  sides alike. That glyphs of sub-fonts past the first reach the result is checked by
+  `font-forge.spec.ts`, not with fontforge: five characters of five sub-fonts in the SVG result,
+  read with saxes, and the glyph count of `maxp` in the TTF result.
 
 On the result side it is the other way round: a reading defect shows as a loss. fontforge misreads
 the SVG font it writes itself, and the preparation works around only a part of it, so some of the
