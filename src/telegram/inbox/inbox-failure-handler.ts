@@ -84,9 +84,9 @@ export class InboxFailureHandler {
 
     // The sender of an update that blocks its group is answered, once (docs/architecture/inbox.md,
     // "The answer to the sender"). A failure that does not block is not: a chat the bot cannot reach
-    // takes no message, a 413 is reported by the error the outbox logs, and the reply a timeout left
-    // in the outbox may still go out. A fenced completion failed nothing: the completion that came
-    // first has an outcome of its own.
+    // takes no message, a 413 of a call queued in the outbox is reported by the error the outbox logs,
+    // and the reply a timeout left in the outbox may still go out. A fenced completion failed nothing:
+    // the completion that came first has an outcome of its own.
     private async failAndBlockGroup(lease: InboxLease, attemptError: InboxAttemptError): Promise<void> {
         const failedUpdate = await this.store.markAsFailedAndBlockGroup(lease, attemptError);
 
