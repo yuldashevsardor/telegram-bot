@@ -308,7 +308,10 @@ session is the album `NotAFileMiddleware` answered last (below).
 
   An unmarked button, "Все форматы" included, converts anew on every press, from a fresh download.
   The second tap of a quick pair comes with the keyboard from before the marks of the first one, so
-  it converts again: one extra file was taken over a key of the press kept in the database.
+  it converts again: one extra file was taken over a key of the press kept in the database. A press
+  of another button made before the edit of an earlier one comes with that keyboard too: its own
+  edit drops the marks of the earlier press, and their buttons convert again. Nothing but the
+  keyboard records the marks, and the Bot API gives no way to read the question back.
 
 The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
 (`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in

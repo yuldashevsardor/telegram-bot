@@ -8,6 +8,9 @@ import type { SupportedFormats } from "app/telegram/supported-formats";
 import type { MarkedPress } from "app/telegram/format-buttons/format-buttons.types";
 import { FormatMark } from "app/telegram/format-buttons/format-buttons.types";
 
+// A format button as its callback data names it: the target, and the mark of a marked one.
+type FormatButtonData = { mark: FormatMark | undefined; targetExtension: Extension };
+
 // The buttons under the question about a file (docs/product/cjm.md, step 2): the target formats.
 @injectable()
 export class FormatButtons {
@@ -20,14 +23,9 @@ export class FormatButtons {
 
     // A marked button keeps its mark in its own callback data: the keyboard of the question is the
     // only record of what the presses have done (docs/product/cjm.md, step 4).
-    private static readonly MARKED_CALLBACK_DATA_PREFIXES: Record<FormatMark, string> = {
-        [FormatMark.Sent]: "sent:",
-        [FormatMark.Failed]: "failed:",
-    };
-
-    private static readonly MARK_SYMBOLS: Record<FormatMark, string> = {
-        [FormatMark.Sent]: "✓",
-        [FormatMark.Failed]: "✗",
+    private static readonly MARK_LOOKS: Record<FormatMark, { callbackDataPrefix: string; symbol: string }> = {
+        [FormatMark.Sent]: { callbackDataPrefix: "sent:", symbol: "✓" },
+        [FormatMark.Failed]: { callbackDataPrefix: "failed:", symbol: "✗" },
     };
 
     public constructor(@inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats) {}
@@ -49,23 +47,13 @@ export class FormatButtons {
 
     // undefined for the data of any other button, an unmarked one included.
     public findMarkedPress(callbackData: string): MarkedPress | undefined {
-        for (const mark of Object.values(FormatMark)) {
-            const prefix = FormatButtons.MARKED_CALLBACK_DATA_PREFIXES[mark];
+        const buttonData = this.parseFormatButton(callbackData);
 
-            if (!callbackData.startsWith(prefix)) {
-                continue;
-            }
-
-            const targetExtension = this.toExtension(callbackData.slice(prefix.length));
-
-            if (targetExtension === undefined) {
-                return undefined;
-            }
-
-            return { mark: mark, targetExtension: targetExtension };
+        if (buttonData?.mark === undefined) {
+            return undefined;
         }
 
-        return undefined;
+        return { mark: buttonData.mark, targetExtension: buttonData.targetExtension };
     }
 
     // The keyboard with the buttons of the formats in `marks` marked, or undefined when no button
@@ -104,41 +92,53 @@ export class FormatButtons {
             return button;
         }
 
-        const targetExtension = this.findTarget(button.callback_data);
+        const buttonData = this.parseFormatButton(button.callback_data);
 
-        if (targetExtension === undefined) {
+        if (buttonData === undefined) {
             return button;
         }
 
+        const { targetExtension } = buttonData;
         const mark = marks.get(targetExtension);
 
         if (mark === undefined) {
             return button;
         }
 
-        const markedCallbackData = FormatButtons.MARKED_CALLBACK_DATA_PREFIXES[mark] + targetExtension;
+        const markLook = FormatButtons.MARK_LOOKS[mark];
+        const markedCallbackData = markLook.callbackDataPrefix + targetExtension;
 
         if (button.callback_data === markedCallbackData) {
             return button;
         }
 
-        return { text: `${FormatButtons.MARK_SYMBOLS[mark]} ${targetExtension.toUpperCase()}`, callback_data: markedCallbackData };
+        return { text: `${markLook.symbol} ${targetExtension.toUpperCase()}`, callback_data: markedCallbackData };
     }
 
-    // The format of a button, marked or not; undefined for "all formats".
-    private findTarget(callbackData: string): Extension | undefined {
-        const prefixes = [FormatButtons.CALLBACK_DATA_PREFIX, ...Object.values(FormatButtons.MARKED_CALLBACK_DATA_PREFIXES)];
+    // undefined for "all formats" and for data of no format button.
+    private parseFormatButton(callbackData: string): FormatButtonData | undefined {
+        if (callbackData.startsWith(FormatButtons.CALLBACK_DATA_PREFIX)) {
+            return this.toButtonData(undefined, callbackData.slice(FormatButtons.CALLBACK_DATA_PREFIX.length));
+        }
 
-        for (const prefix of prefixes) {
+        for (const mark of Object.values(FormatMark)) {
+            const prefix = FormatButtons.MARK_LOOKS[mark].callbackDataPrefix;
+
             if (callbackData.startsWith(prefix)) {
-                return this.toExtension(callbackData.slice(prefix.length));
+                return this.toButtonData(mark, callbackData.slice(prefix.length));
             }
         }
 
         return undefined;
     }
 
-    private toExtension(name: string): Extension | undefined {
-        return Object.values(Extension).find((extension) => extension === name);
+    private toButtonData(mark: FormatMark | undefined, targetName: string): FormatButtonData | undefined {
+        const targetExtension = Object.values(Extension).find((extension) => extension === targetName);
+
+        if (targetExtension === undefined) {
+            return undefined;
+        }
+
+        return { mark: mark, targetExtension: targetExtension };
     }
 }

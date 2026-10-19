@@ -802,6 +802,18 @@ describe("ConversionMiddleware", function () {
             expect(markedLooks(calls)).to.deep.equal([["✓ TTF", "✗ OTF", "✓ WOFF2"], ["✓ EOT", "✗ SVG"], ["Все форматы"]]);
         });
 
+        // A press of OTF made while TTF converted comes with the buttons from before the tick of TTF, and
+        // nothing else tells the bot of it: the keyboard is the only record of the marks.
+        it("drops the marks of an earlier press that came after the press of another button", async function () {
+            const middleware = realMiddleware();
+
+            const first = await run(middleware, press("convert:ttf", question(sourceMessage("MyFont.woff"), woffButtons())));
+            const second = await run(middleware, press("convert:otf", question(sourceMessage("MyFont.woff"), woffButtons())));
+
+            expect(markedLooks(first.calls)).to.deep.equal([["✓ TTF", "OTF", "WOFF2"], ["EOT", "SVG"], ["Все форматы"]]);
+            expect(markedLooks(second.calls)).to.deep.equal([["TTF", "✓ OTF", "WOFF2"], ["EOT", "SVG"], ["Все форматы"]]);
+        });
+
         // Telegram refuses an edit that changes nothing with a 400.
         it("edits nothing when the buttons carry the marks already", async function () {
             const failingConvertor = convertorFailingFor([Extension.OTF, Extension.SVG]);
