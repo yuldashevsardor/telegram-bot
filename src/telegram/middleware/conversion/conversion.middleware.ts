@@ -1,3 +1,4 @@
+import fs from "fs/promises";
 import path from "path";
 import { constants as httpStatus } from "node:http2";
 import { inject, injectable } from "inversify";
@@ -5,6 +6,7 @@ import type { NextFunction } from "grammy";
 import { GrammyError, InputMediaBuilder } from "grammy";
 import type { Document } from "@grammyjs/types";
 import { Tokens } from "app/shared/tokens";
+import { configValue } from "app/shared/config-value";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontConvertor } from "app/font-convertor/font-convertor";
@@ -24,7 +26,7 @@ type Conversion = { sourceExtension: Extension; targetExtensions: Extension[]; i
 
 type Result = { targetExtension: Extension; resultFontPath: string };
 
-type Outcome = { results: Result[]; failedExtensions: Extension[] };
+type Outcome = { results: Result[]; failedExtensions: Extension[]; tooLargeExtensions: Extension[] };
 
 type ReplyOptions = { reply_parameters: { message_id: number; allow_sending_without_reply: boolean } };
 
@@ -36,12 +38,14 @@ export class ConversionMiddleware extends Middleware {
     // How the Bot API refuses the answer to a press it no longer waits for: a press that waited in the
     // inbox behind the conversions of the same chat, or one the inbox retries after a failure.
     private static readonly QUERY_TOO_OLD_DESCRIPTION = "query is too old";
+    private static readonly BYTES_PER_MB = 1024 * 1024;
 
     public constructor(
         @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
         @inject<TelegramFileDownloader>(Tokens.Bot.TelegramFileDownloader) private readonly fileDownloader: TelegramFileDownloader,
         @inject<FontConvertor>(Tokens.Font.Convertor.Convertor) private readonly fontConvertor: FontConvertor,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
+        private readonly maxUploadSizeMb: number = configValue("bot.maxUploadSizeMb"),
     ) {
         super();
     }
@@ -87,23 +91,8 @@ export class ConversionMiddleware extends Middleware {
         };
 
         await this.sendResults(ctx, sourceFilename, outcome.results, replyOptions);
-
-        const [firstFailedExtension] = outcome.failedExtensions;
-
-        if (firstFailedExtension === undefined) {
-            return;
-        }
-
-        if (conversion.isAllFormats) {
-            const failedFormats = outcome.failedExtensions.map((extension) => extension.toUpperCase()).join(", ");
-
-            await ctx.reply(ctx.t("conversion-middleware-failed-formats", { formats: failedFormats }), replyOptions);
-
-            return;
-        }
-
-        // A press of one format converts into it alone, so it is the one that failed.
-        await ctx.reply(ctx.t("conversion-middleware-failed", { format: firstFailedExtension.toUpperCase() }), replyOptions);
+        await this.replyFailed(ctx, conversion, outcome.failedExtensions, replyOptions);
+        await this.replyTooLarge(ctx, outcome.tooLargeExtensions, replyOptions);
     }
 
     private async answerPress(ctx: Context): Promise<void> {
@@ -172,7 +161,7 @@ export class ConversionMiddleware extends Middleware {
 
     // The downloaded source serves this press alone: the next press downloads it again.
     private async convert(sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
-        const outcome: Outcome = { results: [], failedExtensions: [] };
+        const outcome: Outcome = { results: [], failedExtensions: [], tooLargeExtensions: [] };
 
         try {
             for (const targetExtension of conversion.targetExtensions) {
@@ -180,6 +169,10 @@ export class ConversionMiddleware extends Middleware {
 
                 if (resultFontPath === undefined) {
                     outcome.failedExtensions.push(targetExtension);
+                } else if (await this.isTooLargeToSend(resultFontPath, targetExtension)) {
+                    // The outbox removes the files it sends, and this one never reaches it.
+                    await this.removeFile(resultFontPath);
+                    outcome.tooLargeExtensions.push(targetExtension);
                 } else {
                     outcome.results.push({ targetExtension: targetExtension, resultFontPath: resultFontPath });
                 }
@@ -218,6 +211,21 @@ export class ConversionMiddleware extends Middleware {
         }
     }
 
+    // Telegram refuses a file over its limit with a 413, which blocks the chat in the outbox, and in an
+    // album the one file takes the others with it. A font far under the download limit can still give
+    // such a result: an SVG grows several times over a compact source.
+    private async isTooLargeToSend(resultFontPath: string, targetExtension: Extension): Promise<boolean> {
+        const resultSizeBytes = (await fs.stat(resultFontPath)).size;
+
+        if (resultSizeBytes <= this.maxUploadSizeMb * ConversionMiddleware.BYTES_PER_MB) {
+            return false;
+        }
+
+        this.logger.warning("The result is too large to send.", { targetExtension: targetExtension, resultSizeBytes: resultSizeBytes });
+
+        return true;
+    }
+
     // A Telegram album holds at least two files, so a single result goes as a plain document.
     private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyOptions: ReplyOptions): Promise<void> {
         const resultFiles = results.map((result) => this.toResultFile(sourceFilename, result));
@@ -237,6 +245,45 @@ export class ConversionMiddleware extends Middleware {
             resultFiles.map((resultFile) => InputMediaBuilder.document(resultFile)),
             replyOptions,
         );
+    }
+
+    private async replyFailed(
+        ctx: Context,
+        conversion: Conversion,
+        failedExtensions: Extension[],
+        replyOptions: ReplyOptions,
+    ): Promise<void> {
+        const [firstFailedExtension] = failedExtensions;
+
+        if (firstFailedExtension === undefined) {
+            return;
+        }
+
+        if (conversion.isAllFormats) {
+            await ctx.reply(ctx.t("conversion-middleware-failed-formats", { formats: this.toFormatList(failedExtensions) }), replyOptions);
+
+            return;
+        }
+
+        // A press of one format converts into it alone, so it is the one that failed.
+        await ctx.reply(ctx.t("conversion-middleware-failed", { format: firstFailedExtension.toUpperCase() }), replyOptions);
+    }
+
+    private async replyTooLarge(ctx: Context, tooLargeExtensions: Extension[], replyOptions: ReplyOptions): Promise<void> {
+        if (tooLargeExtensions.length === 0) {
+            return;
+        }
+
+        const replyText = ctx.t("conversion-middleware-too-large", {
+            formats: this.toFormatList(tooLargeExtensions),
+            maxUploadSizeMb: this.maxUploadSizeMb,
+        });
+
+        await ctx.reply(replyText, replyOptions);
+    }
+
+    private toFormatList(extensions: Extension[]): string {
+        return extensions.map((extension) => extension.toUpperCase()).join(", ");
     }
 
     // The domain names the result at random; the person gets the name of the source. The outbox

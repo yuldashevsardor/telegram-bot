@@ -18,7 +18,8 @@ bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOF
 `{contact}` is how to reach the author of the bot. It is a configuration value, `BOT_AUTHOR_CONTACT`
 (`.env.dist`), not a text of the `.ftl`: the contact changes without a change of the texts.
 `{maxDownloadSizeMb}` is the size limit of a file the same way, `BOT_MAX_DOWNLOAD_SIZE`, 20 MB by
-default (see "5. Errors").
+default (see "5. Errors"), and `{maxUploadSizeMb}` that of a result the bot sends,
+`BOT_MAX_UPLOAD_SIZE`, 50 MB by default.
 
 The journey covers private chats only: `IsPrivateChatFilter` drops updates of every other chat
 ([`bot.md`](../architecture/bot.md)).
@@ -92,6 +93,10 @@ message after it names the failed formats. A Telegram album holds at least two f
 result comes as a plain document, and when every conversion fails, the message naming the failed
 formats is the whole answer.
 
+A result over {maxUploadSizeMb} MB is not sent: the album carries the rest, and a message after the
+results names it (see "5. Errors"). A source under the download limit can give one: an SVG grows
+several times over a compact source.
+
 ## 4. Again
 
 The buttons stay under the question. Any of them works later too, the same format again included.
@@ -110,6 +115,7 @@ file again.
 | The file is in the format but breaks its rules (`BrokenWoff` and its siblings) | Файл похож на {format}, но повреждён. Попробуйте скачать шрифт заново из источника. |
 | The conversion failed on our side | Не получилось сконвертировать в {format}. Это ошибка на нашей стороне — попробуйте другой формат. |
 | "Все форматы", some conversions failed | Не получилось: {formats}. |
+| A result over {maxUploadSizeMb} MB, for one format and for "Все форматы" alike | Не получилось отправить {formats}: больше {maxUploadSizeMb} МБ — Telegram не даёт ботам отправлять такие файлы. |
 | A button whose source file the bot can no longer get | Этот файл больше недоступен — пришлите его ещё раз. |
 | Any other failure: Telegram did not give the file, an error in the code | Что-то пошло не так. Попробуйте ещё раз чуть позже. Если не пройдёт — напишите автору: {contact}. |
 

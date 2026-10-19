@@ -5,3 +5,7 @@ conversion-middleware-source-unavailable = This file is no longer available: ple
 
 # formats (string): The formats the conversion failed for, comma separated
 conversion-middleware-failed-formats = Could not convert: {$formats}.
+
+# formats (string): The formats whose result is too large to send, comma separated
+# maxUploadSizeMb (number): The largest file size the bot sends, in MB
+conversion-middleware-too-large = Could not send {$formats}: over {$maxUploadSizeMb} MB. Telegram does not let bots send such files.

@@ -46,7 +46,7 @@ type Harness = {
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-const SETTINGS: BotSettings = { token: "test-token", authorContact: "@author", maxDownloadSizeMb: 20 };
+const SETTINGS: BotSettings = { token: "test-token", authorContact: "@author", maxDownloadSizeMb: 20, maxUploadSizeMb: 50 };
 
 const USER_ID = 42;
 

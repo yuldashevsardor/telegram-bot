@@ -26,6 +26,10 @@ const CHAT = { id: 1, type: "private", first_name: "User" } as const;
 const SENDER = { id: 1, is_bot: false, first_name: "User" };
 const SOURCE_MESSAGE_ID = 42;
 const QUESTION_MESSAGE_ID = 43;
+const MAX_UPLOAD_SIZE_MB = 50;
+const BYTES_PER_MB = 1024 * 1024;
+// Below the SVG of the fixture, 471 KB, and above its other results, at most 160 KB.
+const MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB = 0.3;
 
 // A message as a reply carries it: without a reply of its own.
 type ReplyMessage = NonNullable<Message["reply_to_message"]>;
@@ -97,12 +101,22 @@ describe("ConversionMiddleware", function () {
         await fs.rm(tempDir, { recursive: true, force: true });
     });
 
-    function middlewareWith(fontConvertor: FontConvertor): ConversionMiddleware {
-        return new ConversionMiddleware(supportedFormats, downloader as unknown as TelegramFileDownloader, fontConvertor, logger);
+    function middlewareWith(fontConvertor: FontConvertor, maxUploadSizeMb: number = MAX_UPLOAD_SIZE_MB): ConversionMiddleware {
+        return new ConversionMiddleware(
+            supportedFormats,
+            downloader as unknown as TelegramFileDownloader,
+            fontConvertor,
+            logger,
+            maxUploadSizeMb,
+        );
+    }
+
+    function realConvertor(): FontConvertor {
+        return new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
     }
 
     function realMiddleware(): ConversionMiddleware {
-        return middlewareWith(new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir));
+        return middlewareWith(realConvertor());
     }
 
     // Runs the update through the middleware the way Bot attaches it, with the calls of the context
@@ -287,6 +301,92 @@ describe("ConversionMiddleware", function () {
 
             expect(caught).to.equal(error);
             expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
+        });
+    });
+
+    // Telegram refuses a file over its upload limit, and in an album the whole album with it.
+    describe("a result too large to send", function () {
+        const tooLargeSvg = "Не получилось отправить SVG: больше 0,3 МБ — Telegram не даёт ботам отправлять такие файлы.";
+
+        // Records the results the convertor makes, so that the spec sees the one never sent.
+        function recordingConvertor(resultFontPaths: string[]): FontConvertor {
+            const convertor = realConvertor();
+
+            return {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    const resultFontPath = await convertor.convert(params);
+                    resultFontPaths.push(resultFontPath);
+
+                    return resultFontPath;
+                },
+            } as unknown as FontConvertor;
+        }
+
+        it("tells the person instead of sending it, removes it and logs it", async function () {
+            const resultFontPaths: string[] = [];
+            const { calls } = await run(
+                middlewareWith(recordingConvertor(resultFontPaths), MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", "replyWithChatAction", "reply"]);
+            expect(replyTexts(calls)).to.deep.equal([tooLargeSvg]);
+            expect(calls.at(-1)?.args[1]).to.deep.equal({
+                reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true },
+            });
+            expect(resultFontPaths).to.have.lengthOf(1);
+            expect(await exists(resultFontPaths[0] ?? "")).to.equal(false);
+            expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The result is too large to send."]);
+            expect(logger.warnings[0]?.payload).to.include({ targetExtension: Extension.SVG });
+        });
+
+        it("sends the other formats as an album and names the one too large after it", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.OTF]), MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "replyWithMediaGroup",
+                "reply",
+                "reply",
+            ]);
+            expect(albumFilenames(calls)).to.deep.equal(["MyFont.ttf", "MyFont.woff2", "MyFont.eot"]);
+            expect(replyTexts(calls)).to.deep.equal(["Не получилось: OTF.", tooLargeSvg]);
+        });
+
+        it("tells it in the locale of the update", async function () {
+            const { calls } = await run(
+                middlewareWith(realConvertor(), MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+                { locale: "en" },
+            );
+
+            expect(replyTexts(calls)).to.deep.equal(["Could not send SVG: over 0.3 MB. Telegram does not let bots send such files."]);
+        });
+
+        it("sends a result of exactly the limit", async function () {
+            const fixtureSvgPath = path.join(FONTS_DIR, "test-font.svg");
+            // Hands out a copy of the SVG fixture, whose size is known before the run.
+            const copyingConvertor = {
+                convert: async (): Promise<string> => {
+                    const resultFontPath = path.join(tempDir, "result.svg");
+                    await fs.copyFile(fixtureSvgPath, resultFontPath);
+
+                    return resultFontPath;
+                },
+            } as unknown as FontConvertor;
+            const fixtureSvgSizeBytes = (await fs.stat(fixtureSvgPath)).size;
+
+            const { calls } = await run(
+                middlewareWith(copyingConvertor, fixtureSvgSizeBytes / BYTES_PER_MB),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(documentOf(calls).filename).to.equal("MyFont.svg");
+            expect(replyTexts(calls)).to.deep.equal([]);
         });
     });
 

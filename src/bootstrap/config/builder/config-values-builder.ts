@@ -36,6 +36,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // The largest file a bot downloads (getFile), in MB: 20 on the cloud Bot API, while a local Bot
     // API server has no such limit, so there is no ceiling.
     private static readonly DOWNLOAD_SIZE_RANGE: IntegerRange = { min: 1 };
+    // The largest file a bot sends, in MB: 50 on the cloud Bot API, 2000 on a local server.
+    private static readonly UPLOAD_SIZE_RANGE: IntegerRange = { min: 1 };
 
     // The connections the outbox takes besides its slots: the pull of the runner and the five
     // tasks of OutboxMaintenance, each one query at a time.
@@ -132,6 +134,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 token: parser.getString("BOT_TOKEN"),
                 authorContact: parser.getString("BOT_AUTHOR_CONTACT", "@y_sardor"),
                 maxDownloadSizeMb: parser.getInteger("BOT_MAX_DOWNLOAD_SIZE", 20, ConfigValuesBuilder.DOWNLOAD_SIZE_RANGE),
+                maxUploadSizeMb: parser.getInteger("BOT_MAX_UPLOAD_SIZE", 50, ConfigValuesBuilder.UPLOAD_SIZE_RANGE),
             },
 
             gracefulShutdown: {
