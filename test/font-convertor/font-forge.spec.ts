@@ -229,7 +229,7 @@ describe("FontForge.convert", function () {
             // are read back: a wrapped one comes back as a standard string.
             const namesScript = [
                 "import fontforge, sys",
-                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("glyph")}))',
+                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("name")}))',
             ].join("\n");
             const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, distPath]);
             expect(Number(stdout)).to.equal(cffGlyphNameCountMax);
@@ -284,20 +284,77 @@ describe("FontForge.convert", function () {
 
             await new WoffFontValidator(new SfntFontValidator()).validate(distPath);
         });
+    });
 
-        // Cubic outlines with names of the spec's own: an SVG source needs no engine to make.
-        function svgFontWithGlyphs(glyphCount: number): string {
-            const glyphs: Array<string> = [];
-            for (let glyphNumber = 1; glyphNumber <= glyphCount; glyphNumber++) {
-                glyphs.push(`<glyph glyph-name="glyph${glyphNumber}" d="M0 0h100v100h-100z"/>`);
-            }
+    // fontforge 20230101 writes post 2.0 past the names it holds with a zero exit code, the names
+    // wrapped onto the standard Macintosh names.
+    describe("past the glyph names of post 2.0", function () {
+        // 65 536 name indexes, less the 258 standard Macintosh names.
+        const postGlyphNameCountMax = 65_278;
+        const caseTimeoutMs = 30_000;
+        let sourceDir: string;
+        let trueTypePastPostPath: string;
 
-            return (
-                '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
-                glyphs.join("") +
-                "</font></svg>"
+        this.timeout(caseTimeoutMs);
+
+        before(async function () {
+            sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-forge-post-"));
+            trueTypePastPostPath = path.join(sourceDir, "true-type.ttf");
+            // short-post writes a post 3.0, which holds no names, so the source itself comes out whole.
+            const trueTypeScript = [
+                "import fontforge, sys",
+                "font = fontforge.font()",
+                "for index in range(int(sys.argv[2])):",
+                '    font.createChar(-1, "glyph%d" % index).width = 500',
+                'font.generate(sys.argv[1], flags=("short-post",))',
+            ].join("\n");
+            await ProcessHelper.run("fontforge", ["-c", trueTypeScript, trueTypePastPostPath, String(postGlyphNameCountMax + 1)]);
+        });
+
+        after(async function () {
+            await fs.rm(sourceDir, { recursive: true, force: true });
+        });
+
+        it("writes into ttf a font with as many glyph names as post 2.0 holds", async function () {
+            const srcPath = path.join(workDir, "font.svg");
+            const distPath = path.join(workDir, "result.ttf");
+            await fs.writeFile(srcPath, svgFontWithGlyphs(postGlyphNameCountMax));
+
+            await fontForge.convert(srcPath, distPath);
+
+            // A name past the limit points at a standard name, so the names are read back.
+            const namesScript = [
+                "import fontforge, sys",
+                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("name")}))',
+            ].join("\n");
+            const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, distPath]);
+            expect(Number(stdout)).to.equal(postGlyphNameCountMax);
+        });
+
+        it("refuses to write into ttf a font with one glyph name more than post 2.0 holds", async function () {
+            const srcPath = path.join(workDir, "font.svg");
+            const distPath = path.join(workDir, "result.ttf");
+            await fs.writeFile(srcPath, svgFontWithGlyphs(postGlyphNameCountMax + 1));
+
+            const error = await rejectionOf(() => fontForge.convert(srcPath, distPath));
+
+            expect(error).to.be.instanceOf(ExecuteError);
+            expect((error as ExecuteError).message).to.include(
+                `${postGlyphNameCountMax + 1} glyph names, post 2.0 holds ${postGlyphNameCountMax}`,
             );
-        }
+            expect(await FileHelper.isExist(distPath)).to.be.false;
+        });
+
+        it("refuses to write into woff a TrueType font past the glyph names of post 2.0", async function () {
+            const distPath = path.join(workDir, "result.woff");
+
+            const error = await rejectionOf(() => fontForge.convert(trueTypePastPostPath, distPath));
+
+            expect(error).to.be.instanceOf(ExecuteError);
+            expect((error as ExecuteError).message).to.include(`post 2.0 holds ${postGlyphNameCountMax}`);
+            expect((error as ExecuteError).payload).to.deep.equal({ path: trueTypePastPostPath });
+            expect(await FileHelper.isExist(distPath)).to.be.false;
+        });
     });
 
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
@@ -471,6 +528,22 @@ describe("FontForge.convert", function () {
         parser.write(await fs.readFile(svgPath, "utf8")).close();
 
         return glyphs;
+    }
+
+    // Cubic outlines with names of the spec's own: an SVG source needs no engine to make. Reading a
+    // glyph whose name it cannot take from the font, fontforge names it glyphN after its index, so
+    // these names have another prefix.
+    function svgFontWithGlyphs(glyphCount: number): string {
+        const glyphs: Array<string> = [];
+        for (let glyphNumber = 1; glyphNumber <= glyphCount; glyphNumber++) {
+            glyphs.push(`<glyph glyph-name="name${glyphNumber}" d="M0 0h100v100h-100z"/>`);
+        }
+
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+            glyphs.join("") +
+            "</font></svg>"
+        );
     }
 
     function fixture(extension: Extension): string {
