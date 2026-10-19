@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { HelpText } from "app/telegram/command/help/help-text";
-import { helpText, replyContext, supportedFormats } from "test/telegram/handler.helper";
+import { helpText, replyContext, supportedFormatsWithEotOnlyTarget } from "test/telegram/handler.helper";
 
 describe("HelpText", function () {
     it("builds the help of the customer journey", async function () {
@@ -46,6 +46,6 @@ describe("HelpText", function () {
     it("names the size limit it is given", async function () {
         const { ctx } = await replyContext({ text: "/help" });
 
-        expect(new HelpText(supportedFormats, "@author", 50).build(ctx)).to.include("Размер файла — до 50 МБ.");
+        expect(new HelpText(supportedFormatsWithEotOnlyTarget, "@author", 50).build(ctx)).to.include("Размер файла — до 50 МБ.");
     });
 });

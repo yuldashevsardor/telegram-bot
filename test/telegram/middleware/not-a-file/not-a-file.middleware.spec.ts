@@ -7,12 +7,12 @@ import type { Locale } from "app/telegram/locale/locale.types";
 import { initialPayload } from "app/telegram/session/session.helper";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import type { HandlerRun } from "test/telegram/handler.helper";
-import { runHandler, supportedFormats } from "test/telegram/handler.helper";
+import { runHandler, supportedFormatsWithEotOnlyTarget } from "test/telegram/handler.helper";
 
 const DOCUMENT: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
 
 function run(content: Partial<Message>, locale?: Locale, session?: SessionPayload): Promise<HandlerRun> {
-    return runHandler(new NotAFileMiddleware(supportedFormats), content, locale, session);
+    return runHandler(new NotAFileMiddleware(supportedFormatsWithEotOnlyTarget), content, locale, session);
 }
 
 describe("NotAFileMiddleware", function () {
