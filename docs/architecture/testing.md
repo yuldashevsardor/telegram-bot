@@ -198,6 +198,11 @@ not show on the source side:
 - An SVG is read with the code points of its unencoded glyphs taken off, as the bot reads an SVG
   source (`font-convertor.md`, "Reading SVG"), so a wrong glyph index would show on both sides
   alike. That the indexes find the right glyphs is checked by `font-forge.spec.ts`, not here.
+- A CID-keyed font is read flattened with `font.cidFlatten()`, as the bot flattens it
+  (`font-convertor.md`, "CID-keyed fonts"), so a glyph the flattening lost would be missing on both
+  sides alike. That glyphs of sub-fonts past the first reach the result is checked by
+  `font-forge.spec.ts`, not with fontforge: five characters of five sub-fonts in the SVG result,
+  read with saxes, and the glyph count of `maxp` in the TTF result.
 
 On the result side it is the other way round: a reading defect shows as a loss. fontforge misreads
 the SVG font it writes itself, and the preparation works around only a part of it, so some of the
@@ -216,9 +221,10 @@ The check runs apart from the main set: the `test:fonts` npm script starts mocha
 
 `make check` runs it after the tests with coverage (the `check` npm script); `make test`,
 `make coverage` and `make mutation` do not. The PR review runs it under the `test-fonts` gate
-(`docs/agents/review-gates.md`). On 2026-10-09 its 90 conversions, each of the 18 font fixtures
-into the 5 other formats, took 24–25 s in mocha under a load average of 25, and
-`make test-fonts` took 26–30 s with the start of the container.
+(`docs/agents/review-gates.md`). On 2026-10-09, with 18 font fixtures, its 90 conversions, each
+fixture into the 5 other formats, took 24–25 s in mocha under a load average of 25, and
+`make test-fonts` took 26–30 s with the start of the container. The fixtures added since are not in
+that measurement.
 
 ## Mutation testing
 

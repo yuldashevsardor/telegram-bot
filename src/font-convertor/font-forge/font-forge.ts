@@ -31,13 +31,24 @@ export class FontForge {
         "        if glyph.originalgid in unencodedGlyphIndexes:",
         "            glyph.unicode = -1",
     ];
-    private readonly convertScript = [...this.openFontAndUnencodeGlyphsScript, "font.generate(sys.argv[2])"].join("\n");
+    // fontforge opens a CID-keyed font with its first sub-font active and writes that sub-font alone
+    // into a format that is not CID-keyed. An OTF it writes CID-keyed and whole, and flattening one
+    // would only merge the hints of the sub-fonts and name every glyph, past what a name-keyed CFF
+    // holds in the largest fonts (docs/architecture/font-convertor.md, "CID-keyed fonts").
+    private readonly flattenCidFontScript = ["if font.is_cid:", "    font.cidFlatten()"];
+    private readonly convertToOtfScript = [...this.openFontAndUnencodeGlyphsScript, "font.generate(sys.argv[2])"].join("\n");
+    private readonly convertFlattenedScript = [
+        ...this.openFontAndUnencodeGlyphsScript,
+        ...this.flattenCidFontScript,
+        "font.generate(sys.argv[2])",
+    ].join("\n");
     // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script
     // gives each code point left out a copy of the glyph, which fontforge writes under that code point.
     // Which code points fontforge leaves out and which of its rules the script repeats:
     // docs/architecture/font-convertor.md, "Writing SVG".
     private readonly convertToSvgScript = [
         ...this.openFontAndUnencodeGlyphsScript,
+        ...this.flattenCidFontScript,
         "import unicodedata",
         "def isArabicForm(codePoint):",
         '    tag = unicodedata.decomposition(chr(codePoint)).split(" ")[0]',
@@ -111,7 +122,7 @@ export class FontForge {
             throw ExtensionNotSupport.byExtension(distExtension);
         }
 
-        const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
+        const script = this.scriptFor(distExtension);
 
         if (inputExtension !== Extension.SVG) {
             await this.run(script, [inputPath, distPath], sourcePath);
@@ -134,6 +145,18 @@ export class FontForge {
                 await this.run(script, [preparedPath, distPath, unencodedGlyphsPath], sourcePath);
             }),
         );
+    }
+
+    private scriptFor(distExtension: string): string {
+        if (distExtension === Extension.SVG) {
+            return this.convertToSvgScript;
+        }
+
+        if (distExtension === Extension.OTF) {
+            return this.convertToOtfScript;
+        }
+
+        return this.convertFlattenedScript;
     }
 
     /**

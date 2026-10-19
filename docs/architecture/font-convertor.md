@@ -12,7 +12,8 @@ FontConvertor.convert({ originPath, extension })
     of its format accepts it (FontValidatorResolver); the result path does not exist
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
     source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
-    argument (SvgFontPreparer, "Reading SVG")
+    argument (SvgFontPreparer, "Reading SVG"); the script flattens a CID-keyed font for every
+    target but OTF ("CID-keyed fonts")
   → the validator of the target format accepts the result (FontValidatorResolver), otherwise
     FontConvertorError ("Checking the result")
 ```
@@ -113,6 +114,44 @@ the corpus it prints 2.4 MB and exits with 0. `execFile` keeps the whole output 
 `maxBuffer`, 1 MiB by default, so under it the bot failed such a font in every format, throwing away
 the written result ([#912](https://github.com/yuldashevsardor/telegram-bot/issues/912)). The tail
 is what goes into the message of `ProcessFailed`, so the error stays bounded too.
+
+## CID-keyed fonts
+
+The CFF of a CID-keyed font keeps its glyphs in sub-fonts (`FDArray`), each with its own private
+dictionary; the large CJK fonts, Noto Sans CJK and Source Han, are built so. fontforge 20230101
+opens such a font with its first sub-font active: `font.glyphs()` walks that sub-font alone, and
+`generate()` into a format that is not CID-keyed writes it alone, under the sub-font's name. The
+whole `NotoSansCJKsc-Regular.otf`, 65 535 glyphs in 18 sub-fonts, came out of every pair as the 52
+fullwidth Latin letters of its first sub-font, `Alphabetic`, with a zero exit code
+([#1026](https://github.com/yuldashevsardor/telegram-bot/issues/1026)). So the conversion scripts
+flatten a CID-keyed font with `font.cidFlatten()` (`FontForge.flattenCidFontScript`): the sub-fonts
+merge into one name-keyed font, each glyph named after its CID (`Identity.1` in Noto Sans CJK SC),
+and the target gets all of them. The conversion check reads a CID-keyed font flattened the same way
+(`testing.md`, "The conversion check").
+
+An OTF is not flattened: fontforge writes a CID-keyed font into OTF CID-keyed and whole, its
+sub-fonts kept. Measured on the whole Noto Sans CJK SC as an OTF and as a WOFF wrapped around the
+same sfnt by fontTools, which the WOFF validator accepts: both came out as an OTF of 18 sub-fonts
+and 65 535 glyphs that fontTools reads. `FontForge.scriptFor()` picks `convertToOtfScript` for that
+target. Flattened, the OTF would lose what the two paragraphs below say a flattened font loses.
+
+The private dictionaries of the sub-fonts do not survive the flattening: a name-keyed CFF has one,
+so the CFF hints of a WOFF result keep one set of alignment zones for every glyph. In the fixture of
+the check `Alphabetic` has the `BlueValues` `[-13, 0, 544, 557, 735, 747]`, `Proportional`
+`[-13, 0, 543, 557, 733, 747]`, the ideographs and Hangul `[-250, -250, 1100, 1100]`, and the
+flattened result `[-20, 0, 543, 543, 733, 733]`. Hinting is not among the facts the check compares,
+so it does not see this.
+
+Flattening holds up to the names a name-keyed CFF can store: its String INDEX, which holds every
+glyph name, counts its strings in 16 bits. The region subset `NotoSansSC-Regular.otf` of noto-cjk,
+31 036 glyphs, converts whole into every format. The whole Noto Sans CJK SC, 65 535 glyphs, does
+not. Into WOFF fontforge prints "Attempt to output 65538 into a 16-bit field. It will be truncated
+and the file may not be useful", exits with 0 and writes a CFF whose String INDEX counts 2 strings,
+so fontTools cannot read its Top DICT. The WOFF validator accepts the result: neither it nor the
+sfnt validator reads what `CFF ` holds (the class comment of `SfntFontValidator`), so the bot sends
+a broken file ([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)). Into TTF and
+EOT the font is past the glyph limit of sfnt ("Checking the result"), and into WOFF2 the engine
+fails. The SVG, 45 448 371 bytes, comes through.
 
 ## Checking the result
 
@@ -240,9 +279,9 @@ unencoded on the way back, as SVG 1.1 reads it.
 
 ## Writing SVG
 
-A pair into SVG runs `FontForge.convertToSvgScript` instead of `convertScript`. fontforge 20230101
-writes a glyph into one `<glyph>` element and leaves its other code points out (`svg_sfdump` of its
-`svg.c`):
+A pair into SVG runs `FontForge.convertToSvgScript` instead of `convertFlattenedScript`. fontforge
+20230101 writes a glyph into one `<glyph>` element and leaves its other code points out
+(`svg_sfdump` of its `svg.c`):
 
 - a glyph with a ligature of a `liga` or `rlig` lookup, whose components all have code points,
   goes under the components alone. An icon font with ligatures loses every code point this way:

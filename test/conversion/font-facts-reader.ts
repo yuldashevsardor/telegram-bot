@@ -14,7 +14,7 @@ type FontFactsJson = Omit<FontFacts, "advanceWidths"> & { advanceWidths: Record<
  * no separate python3.
  */
 export class FontFactsReader {
-    // The path is read from sys.argv, as in FontForge.convertScript. U+0000 is left out of the
+    // The path is read from sys.argv, as in FontForge.convertFlattenedScript. U+0000 is left out of the
     // encoded code points: it is the NULL control code, which no text draws, and the engine keeps it
     // in neither direction. Writing an sfnt, fontforge drops the cmap entry of U+0000 that points at
     // glyph 0, which an unmapped code point gets anyway. An SVG is read as FontForge.convert() reads
@@ -26,10 +26,14 @@ export class FontFactsReader {
     // holds it, platform 0 and platform 3 of one font, which would read as two glyphs. A code point
     // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps the
     // width of each of them, so a change of any one shows. The widths are sorted, since the glyph
-    // order differs between formats; two variants that swap their widths therefore pass unseen.
+    // order differs between formats; two variants that swap their widths therefore pass unseen. A
+    // CID-keyed font is flattened as FontForge.flattenCidFontScript flattens it, an OTF result too:
+    // unflattened, font.glyphs() walks its first sub-font alone.
     private readonly readScript = [
         "import fontforge, io, json, sys",
         "font = fontforge.open(sys.argv[1])",
+        "if font.is_cid:",
+        "    font.cidFlatten()",
         "glyphs = list(font.glyphs())",
         "if len(sys.argv) > 2:",
         "    with io.open(sys.argv[2]) as unencodedGlyphsFile:",

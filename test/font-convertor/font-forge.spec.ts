@@ -8,6 +8,7 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
@@ -22,7 +23,10 @@ import { ProcessHelper } from "app/shared/process/process-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+// maxp: version (4 bytes), then numGlyphs (OpenType 1.9.1, maxp).
+const MAXP_NUM_GLYPHS_OFFSET_BYTES = 4;
 const bungeeSpicePath = path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf");
+const cidKeyedFontPath = path.join(fixtureDir, "noto-sans-cjk-sc", "NotoSansCJKsc-Regular-subset.otf");
 
 describe("FontForge.convert", function () {
     const fontForge = new FontForge(new SvgFontPreparer(new SvgTextCodec()), "fontforge");
@@ -113,6 +117,58 @@ describe("FontForge.convert", function () {
         expect(glyphOutline).to.be.a("string").and.not.empty;
         expect(glyphs.get("uni06D5.u06D5")?.["d"]).to.equal(glyphOutline);
         expect([...glyphs.keys()].filter((glyphName) => glyphName.startsWith("uniFBE8."))).to.be.empty;
+    });
+
+    // The fixture's first sub-font holds the fullwidth Latin letters; A, あ, 中 and 한 lie in four others.
+    it("writes glyphs of sub-fonts past the first of a CID-keyed font", async function () {
+        const distPath = path.join(workDir, "result.svg");
+
+        await fontForge.convert(cidKeyedFontPath, distPath);
+
+        const glyphs = await glyphsByName(distPath);
+        const characters = [...glyphs.values()].map((glyph) => glyph["unicode"]);
+        expect(characters).to.include.members(["Ａ", "A", "あ", "中", "한"]);
+    });
+
+    // Unflattened, the result holds the 4 letters of the first sub-font with the glyphs fontforge adds
+    // to a TrueType font. The SVG case above goes through convertToSvgScript; this one through the
+    // script of the sfnt targets.
+    it("writes every glyph of a CID-keyed font into ttf", async function () {
+        const distPath = path.join(workDir, "result.ttf");
+        const fixtureGlyphCount = 31;
+
+        await fontForge.convert(cidKeyedFontPath, distPath);
+
+        const ttfFont = new Uint8Array(await fs.readFile(distPath));
+        const maxp = new SfntTableDirectory(ttfFont).find("maxp");
+        expect(maxp).to.not.be.undefined;
+        const glyphCount = new DataView(ttfFont.buffer).getUint16((maxp?.offset ?? 0) + MAXP_NUM_GLYPHS_OFFSET_BYTES);
+        expect(glyphCount).to.be.at.least(fixtureGlyphCount);
+    });
+
+    // The CFF of a CID-keyed font keeps the name of each sub-font as text, and a flattened font has
+    // none of them. FontForge does not refuse a source of the target format, so the fixture stands for
+    // the CID-keyed CFF a WOFF or a WOFF2 carries.
+    it("writes a CID-keyed font into otf with its sub-fonts", async function () {
+        const distPath = path.join(workDir, "result.otf");
+        const subFontNames = [
+            "Alphabetic",
+            "Generic",
+            "Hangul",
+            "Ideographs",
+            "Kana",
+            "Proportional",
+            "ProportionalCJK",
+            "ProportionalDigits",
+            "VKana",
+        ];
+
+        await fontForge.convert(cidKeyedFontPath, distPath);
+
+        const otfFont = await fs.readFile(distPath);
+        for (const subFontName of subFontNames) {
+            expect(otfFont.includes(`NotoSansCJKsc-Regular-${subFontName}`), subFontName).to.be.true;
+        }
     });
 
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
