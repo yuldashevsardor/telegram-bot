@@ -4,8 +4,9 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { Api, Composer, Context as GrammyContext, GrammyError } from "grammy";
-import type { MaybeInaccessibleMessage, Message, Update, UserFromGetMe } from "@grammyjs/types";
-import type { Extension } from "app/font-convertor/font-convertor.types";
+import type { InputMediaDocument, MaybeInaccessibleMessage, Message, Update, UserFromGetMe } from "@grammyjs/types";
+import type { ConvertParams } from "app/font-convertor/font-convertor.types";
+import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontConvertor } from "app/font-convertor/font-convertor";
 import { FontConvertorError } from "app/font-convertor/font-convertor.errors";
 import { ConversionMiddleware } from "app/telegram/middleware/conversion/conversion.middleware";
@@ -131,6 +132,7 @@ describe("ConversionMiddleware", function () {
         ctx.replyWithChatAction = record("replyWithChatAction") as Context["replyWithChatAction"];
         ctx.reply = record("reply") as Context["reply"];
         ctx.replyWithDocument = record("replyWithDocument") as Context["replyWithDocument"];
+        ctx.replyWithMediaGroup = record("replyWithMediaGroup") as Context["replyWithMediaGroup"];
 
         const composer = new Composer<Context>();
         middleware.setup(composer);
@@ -147,6 +149,31 @@ describe("ConversionMiddleware", function () {
         const documentCall = calls.find((call) => call.method === "replyWithDocument");
 
         return documentCall?.args[0] as PathFile;
+    }
+
+    function albumOf(calls: HandlerCall[]): InputMediaDocument<PathFile>[] {
+        const albumCall = calls.find((call) => call.method === "replyWithMediaGroup");
+
+        return albumCall?.args[0] as InputMediaDocument<PathFile>[];
+    }
+
+    function albumFilenames(calls: HandlerCall[]): unknown[] {
+        return albumOf(calls).map((media) => (media.media as PathFile).filename);
+    }
+
+    // Converts as the real convertor does, and fails on our side for the targets named.
+    function convertorFailingFor(failingExtensions: Extension[]): FontConvertor {
+        const realConvertor = new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
+
+        return {
+            convert: async (params: ConvertParams): Promise<string> => {
+                if (failingExtensions.includes(params.extension)) {
+                    throw new FontConvertorError("The engine failed.");
+                }
+
+                return realConvertor.convert(params);
+            },
+        } as unknown as FontConvertor;
     }
 
     function replyTexts(calls: HandlerCall[]): unknown[] {
@@ -339,11 +366,110 @@ describe("ConversionMiddleware", function () {
         });
     });
 
-    it("answers a press of all formats and converts nothing", async function () {
-        const { calls } = await run(realMiddleware(), press("convert:all", question(sourceMessage("MyFont.woff"))));
+    // docs/product/cjm.md, step 3: "Все форматы".
+    describe("a press of all formats", function () {
+        const sourceReply = { reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true } };
 
-        expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery"]);
-        expect(downloader.downloadedPaths).to.deep.equal([]);
+        it("sends every offered format as one album of documents in reply to the source, from one download", async function () {
+            const { calls } = await run(realMiddleware(), press("convert:all", question(sourceMessage("MyFont.woff"))));
+
+            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", "replyWithChatAction", "replyWithMediaGroup"]);
+            expect(albumOf(calls).map((media) => media.type)).to.deep.equal(["document", "document", "document", "document", "document"]);
+            expect(albumFilenames(calls)).to.deep.equal(["MyFont.ttf", "MyFont.otf", "MyFont.woff2", "MyFont.eot", "MyFont.svg"]);
+            // No caption, as for a single format.
+            expect(albumOf(calls).map((media) => media.caption)).to.deep.equal([undefined, undefined, undefined, undefined, undefined]);
+            expect(calls.at(-1)?.args[1]).to.deep.equal(sourceReply);
+            // The source is removed, and the results are kept for the outbox.
+            expect(downloader.downloadedPaths).to.have.lengthOf(1);
+            expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
+            await Promise.all(albumOf(calls).map(async (media) => expect(await exists((media.media as PathFile).path)).to.equal(true)));
+        });
+
+        it("sends the rest as an album and names the failed formats in one message after it", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.OTF, Extension.SVG])),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "replyWithMediaGroup",
+                "reply",
+            ]);
+            expect(albumFilenames(calls)).to.deep.equal(["MyFont.ttf", "MyFont.woff2", "MyFont.eot"]);
+            expect(replyTexts(calls)).to.deep.equal(["Не получилось: OTF, SVG."]);
+            expect(calls.at(-1)?.args[1]).to.deep.equal(sourceReply);
+            expect(logger.errors.map((error) => error.message)).to.deep.equal(["The conversion failed.", "The conversion failed."]);
+        });
+
+        it("names the failed formats in the locale of the update", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.OTF, Extension.SVG])),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+                { locale: "en" },
+            );
+
+            expect(replyTexts(calls)).to.deep.equal(["Could not convert: OTF, SVG."]);
+        });
+
+        // A Telegram album holds at least two files.
+        it("sends a single result as a plain document", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.OTF, Extension.WOFF2, Extension.EOT, Extension.SVG])),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "replyWithDocument",
+                "reply",
+            ]);
+            expect(documentOf(calls).filename).to.equal("MyFont.ttf");
+            expect(calls.find((call) => call.method === "replyWithDocument")?.args[1]).to.deep.equal(sourceReply);
+            expect(replyTexts(calls)).to.deep.equal(["Не получилось: OTF, WOFF2, EOT, SVG."]);
+        });
+
+        it("answers with the failed formats alone when every conversion fails", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.TTF, Extension.OTF, Extension.WOFF2, Extension.EOT, Extension.SVG])),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", "replyWithChatAction", "reply"]);
+            expect(replyTexts(calls)).to.deep.equal(["Не получилось: TTF, OTF, WOFF2, EOT, SVG."]);
+            expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
+        });
+
+        // The inbox handles the update again from the start, so the results made before the error
+        // would never be sent.
+        it("removes the results already made when an error that is no failure of the conversion stops it", async function () {
+            const error = new Error("The disk is gone.");
+            const realConvertor = new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
+            const resultFontPaths: string[] = [];
+            const brokenConvertor = {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    if (params.extension === Extension.WOFF2) {
+                        throw error;
+                    }
+
+                    const resultFontPath = await realConvertor.convert(params);
+                    resultFontPaths.push(resultFontPath);
+
+                    return resultFontPath;
+                },
+            } as unknown as FontConvertor;
+
+            const caught = await run(middlewareWith(brokenConvertor), press("convert:all", question(sourceMessage("MyFont.woff")))).catch(
+                (rejection: unknown) => rejection,
+            );
+
+            expect(caught).to.equal(error);
+            expect(resultFontPaths).to.have.lengthOf(2);
+            await Promise.all(resultFontPaths.map(async (resultFontPath) => expect(await exists(resultFontPath)).to.equal(false)));
+            expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
+        });
     });
 
     // The source format is never offered: such data comes from no button of the bot.

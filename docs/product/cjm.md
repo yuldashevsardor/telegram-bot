@@ -2,8 +2,7 @@
 
 What a person sees in the bot, step by step, and what the bot says at each step. The file
 describes the journey the bot is meant to give. A step that is not built yet differs from the code,
-and the code is the authority on what is built. Today the "Все форматы" button of step 2 converts
-nothing: the press is answered, and its part of step 3 and its row of step 5 are not built.
+and the code is the authority on what is built.
 
 The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
