@@ -86,9 +86,10 @@ stops both ([`application.md`](./application.md)). `handleUpdate()` wraps an err
 into a `BotError` and throws it on, so no `bot.catch()` is set: the inbox picks the outcome of the
 update by the class of the error ([`inbox.md`](./inbox.md), "Failures"). Only an update that blocks
 its group gets an answer, sent from the inbox and not from the pipeline ([`inbox.md`](./inbox.md),
-"The answer to the sender"); a failure that does not block shows the user no sign of itself. The log
-gets none either, except for a blocked group: the failures that do not block are seen in the
-`attempts` of the inbox tables only ([`inbox.md`](./inbox.md), "Outcomes").
+"The answer to the sender"); a failure that does not block shows the user no sign of itself. The
+inbox logs none either, except for a blocked group: the failures that do not block are seen in the
+`attempts` of the inbox tables, and a 413 also in the error the outbox logs for it
+([`inbox.md`](./inbox.md), "Outcomes"; [`outbox.md`](./outbox.md), "Error classes").
 
 The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`,
 `["message", "callback_query"]`. Commands and the answers of step 7 in private chats need messages,

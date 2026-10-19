@@ -37,8 +37,10 @@ class RecordingStore {
         this.calls.push({ method: "retry", lease, error, delayMs });
     }
 
-    public async markAsFailed(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
+    public async markAsFailed(lease: OutboxLease, error: OutboxAttemptError): Promise<boolean> {
         this.calls.push({ method: "markAsFailed", lease, error });
+
+        return true;
     }
 
     public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
@@ -65,6 +67,15 @@ class RefusingRetryStore extends RecordingStore {
 
     public override async retry(): Promise<void> {
         throw RefusingRetryStore.refusal;
+    }
+}
+
+// A store whose markAsFailed() is fenced: another completion has changed the message already.
+class FencedFailStore extends RecordingStore {
+    public override async markAsFailed(lease: OutboxLease, error: OutboxAttemptError): Promise<boolean> {
+        await super.markAsFailed(lease, error);
+
+        return false;
     }
 }
 
@@ -277,6 +288,15 @@ describe("OutboxFailureHandler", function () {
                 },
             },
         ]);
+    });
+
+    it("logs no error for a request over the upload limit whose completion is fenced", async function () {
+        store = new FencedFailStore();
+
+        await handlerAllowing(MAX_ATTEMPTS).handle(pulledAfter(0), telegramError(413, "Request Entity Too Large"));
+
+        expect(store.calls.map((call) => call.method)).to.deep.equal(["markAsFailed"]);
+        expect(logger.errors).to.deep.equal([]);
     });
 
     it("fails an unexpected failure and blocks its chat", async function () {

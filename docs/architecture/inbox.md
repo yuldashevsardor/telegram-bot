@@ -415,8 +415,9 @@ class, and why, is read off the method, its constants and their comments. In sho
   `Unexpected`; the rest are `Transient`, but for `TooLarge`.
 - A 413 (`TooLarge`) is `Undeliverable`: a retry of the update would send the same request again
   and get the same 413, and the next update of the group must not wait behind a request that can
-  never go. The outbox has failed the message without blocking the chat and logged the 413 at
-  `error`.
+  never go. A 413 of a call queued in the outbox has failed the message there without blocking the
+  chat and is logged at `error` ([`outbox.md`](./outbox.md), "Error classes"); one of a call that
+  bypassed the outbox leaves only the attempt of the update.
 - A 429 (`Flood`) and a 401 (`Unauthorized`) are `Transient`. Through the outbox neither reaches a
   handler: the outbox waits a 429 out and pauses on a 401 itself. One that does came from a call
   that bypassed the outbox, and the update can be handled once Telegram lets the bot call again.
@@ -464,9 +465,9 @@ Only an `Unexpected` failure and a `Transient` one on its last attempt block the
 they answer the sender (see "The answer to the sender"): after an `Undeliverable` or a
 `ReplyTimeout` failure the next update of the group is handled. A blocked group
 is logged at `error` by the store, with the group, the update and the error; a fenced completion
-logs no error. Nothing else is logged: a failure that does not block leaves its error in the
-`attempts` of the update and in no log line, so during an outage of PostgreSQL the retries show
-only in the inbox tables.
+logs no error. The inbox logs nothing else: a failure that does not block leaves its error in the
+`attempts` of the update and in no log line of the inbox, so during an outage of PostgreSQL the
+retries show only in the inbox tables. A 413 is logged by the outbox (see "Error classes").
 
 Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the attempt being handled
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of
@@ -520,7 +521,7 @@ whether the handler threw it or the lease recovery completed it (see "Lease reco
 that is retried gets none, so the answer goes out once per blocking, not once per attempt. A failure
 that does not block gets none either. A chat the bot cannot reach takes no message. After a 413
 the chat would take one, and it gets none by the owner's choice
-([#1024](https://github.com/yuldashevsardor/telegram-bot/issues/1024)): the callers keep under the
+([PR #1028](https://github.com/yuldashevsardor/telegram-bot/pull/1028)): the callers keep under the
 upload limit, so a 413 is a bug the `error` of the outbox reports, and an answer to a failure that
 does not block would need a path of its own for it. The person gets what went out before the 413.
 After a `ReplyTimeout` the reply of the handler is still in the outbox and may go out yet, and the

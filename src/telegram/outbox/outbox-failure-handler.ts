@@ -52,7 +52,7 @@ export class OutboxFailureHandler {
                     ? this.pauseForFlood(message, failure.retryAfterSeconds, attemptError)
                     : this.holdBackChatForFlood(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
-                return this.store.markAsFailed(message, attemptError);
+                return this.failUndeliverable(message, attemptError);
             case TelegramBotApiFailureKind.TooLarge:
                 return this.failTooLarge(message, attemptError);
             case TelegramBotApiFailureKind.Unauthorized:
@@ -100,18 +100,28 @@ export class OutboxFailureHandler {
         await this.store.retry(message, attemptError, retryAfterSeconds * MS_PER_SECOND);
     }
 
+    // Whether the completion was fenced does not matter: nothing follows it.
+    private async failUndeliverable(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+        await this.store.markAsFailed(message, attemptError);
+    }
+
     // A 413 means the upload limit of the configuration no longer matches Telegram's, or a call
     // uploads files without checking it (docs/architecture/outbox.md, "Error classes"). No chat is
-    // blocked, so the handler logs it as an error itself.
+    // blocked, so the handler logs it as an error itself. A fenced completion failed nothing: the
+    // completion that came first has an outcome of its own, and a send it leads to logs its own 413.
     private async failTooLarge(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+        const hasFailed = await this.store.markAsFailed(message, attemptError);
+
+        if (!hasFailed) {
+            return;
+        }
+
         this.logger.error("The Bot API refuses a request over its upload limit: the message is failed.", {
             messageId: message.id,
             chatId: message.chatId,
             method: message.method,
             cause: attemptError,
         });
-
-        await this.store.markAsFailed(message, attemptError);
     }
 
     // Nothing else shows a revoked token: no chat is blocked, the sending only stops.
