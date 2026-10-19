@@ -26,6 +26,10 @@ const CHAT = { id: 1, type: "private", first_name: "User" } as const;
 const SENDER = { id: 1, is_bot: false, first_name: "User" };
 const SOURCE_MESSAGE_ID = 42;
 const QUESTION_MESSAGE_ID = 43;
+const MAX_UPLOAD_SIZE_MB = 50;
+const BYTES_PER_MB = 1024 * 1024;
+// The margin ConversionMiddleware keeps under the upload limit for the multipart around the files.
+const REQUEST_OVERHEAD_MARGIN_BYTES = 64 * 1024;
 
 // A message as a reply carries it: without a reply of its own.
 type ReplyMessage = NonNullable<Message["reply_to_message"]>;
@@ -97,20 +101,31 @@ describe("ConversionMiddleware", function () {
         await fs.rm(tempDir, { recursive: true, force: true });
     });
 
-    function middlewareWith(fontConvertor: FontConvertor): ConversionMiddleware {
-        return new ConversionMiddleware(supportedFormats, downloader as unknown as TelegramFileDownloader, fontConvertor, logger);
+    function middlewareWith(fontConvertor: FontConvertor, maxUploadSizeMb: number = MAX_UPLOAD_SIZE_MB): ConversionMiddleware {
+        return new ConversionMiddleware(
+            supportedFormats,
+            downloader as unknown as TelegramFileDownloader,
+            fontConvertor,
+            logger,
+            maxUploadSizeMb,
+        );
+    }
+
+    function realConvertor(): FontConvertor {
+        return new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir);
     }
 
     function realMiddleware(): ConversionMiddleware {
-        return middlewareWith(new FontConvertor(realConvertorFactory(realFontValidatorResolver()), tempDir));
+        return middlewareWith(realConvertor());
     }
 
     // Runs the update through the middleware the way Bot attaches it, with the calls of the context
-    // recorded instead of sent. answerPress stands for the answer of Telegram to answerCallbackQuery.
+    // recorded instead of sent. answerPress stands for the answer of Telegram to answerCallbackQuery,
+    // mediaGroupError for a failure of the first album the middleware sends.
     async function run(
         middleware: ConversionMiddleware,
         update: Update,
-        options: { locale?: Locale; answerPress?: () => Promise<true> } = {},
+        options: { locale?: Locale; answerPress?: () => Promise<true>; mediaGroupError?: Error } = {},
     ): Promise<PressRun> {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const ctx = new GrammyContext(update, new Api("test-token"), ME) as Context;
@@ -132,7 +147,15 @@ describe("ConversionMiddleware", function () {
         ctx.replyWithChatAction = record("replyWithChatAction") as Context["replyWithChatAction"];
         ctx.reply = record("reply") as Context["reply"];
         ctx.replyWithDocument = record("replyWithDocument") as Context["replyWithDocument"];
-        ctx.replyWithMediaGroup = record("replyWithMediaGroup") as Context["replyWithMediaGroup"];
+        ctx.replyWithMediaGroup = (async (...args: unknown[]) => {
+            calls.push({ method: "replyWithMediaGroup", args: args });
+
+            if (options.mediaGroupError !== undefined) {
+                throw options.mediaGroupError;
+            }
+
+            return {};
+        }) as Context["replyWithMediaGroup"];
 
         const composer = new Composer<Context>();
         middleware.setup(composer);
@@ -287,6 +310,215 @@ describe("ConversionMiddleware", function () {
 
             expect(caught).to.equal(error);
             expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
+        });
+    });
+
+    // Telegram refuses a request whose body is over its limit, and an album goes in one request.
+    describe("results against the upload limit", function () {
+        const maxUploadSizeMb = 1;
+        // The files of one request: the limit less the margin the middleware keeps for the multipart.
+        const maxRequestFilesBytes = BYTES_PER_MB - REQUEST_OVERHEAD_MARGIN_BYTES;
+        const tooLargeSvg = "Не получилось отправить SVG: больше 1 МБ — Telegram не даёт ботам отправлять такие файлы.";
+
+        // Writes a result of the size given for its target, so that the spec knows each size before the run.
+        function sizedConvertor(resultSizesBytes: Partial<Record<Extension, number>>, resultFontPaths: string[] = []): FontConvertor {
+            return {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    const resultFontPath = path.join(tempDir, `result-${resultFontPaths.length}.${params.extension}`);
+
+                    await fs.writeFile(resultFontPath, Buffer.alloc(resultSizesBytes[params.extension] ?? 1));
+                    resultFontPaths.push(resultFontPath);
+
+                    return resultFontPath;
+                },
+            } as unknown as FontConvertor;
+        }
+
+        function filenamesOf(call: HandlerCall): unknown[] {
+            if (call.method === "replyWithDocument") {
+                return [(call.args[0] as PathFile).filename];
+            }
+
+            return (call.args[0] as InputMediaDocument<PathFile>[]).map((media) => (media.media as PathFile).filename);
+        }
+
+        function sendCalls(calls: HandlerCall[]): HandlerCall[] {
+            return calls.filter((call) => call.method === "replyWithDocument" || call.method === "replyWithMediaGroup");
+        }
+
+        it("tells the person instead of sending a result over the limit, removes it and logs it", async function () {
+            const resultFontPaths: string[] = [];
+            const { calls } = await run(
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 }, resultFontPaths), maxUploadSizeMb),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal(["answerCallbackQuery", "replyWithChatAction", "reply"]);
+            expect(replyTexts(calls)).to.deep.equal([tooLargeSvg]);
+            expect(calls.at(-1)?.args[1]).to.deep.equal({
+                reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true },
+            });
+            expect(await exists(resultFontPaths[0] ?? "")).to.equal(false);
+            expect(logger.warnings).to.deep.equal([
+                {
+                    message: "The result is too large to send.",
+                    payload: { sourceFilename: "MyFont.woff", targetExtension: Extension.SVG, resultSizeBytes: maxRequestFilesBytes + 1 },
+                },
+            ]);
+        });
+
+        it("sends a result of exactly the limit", async function () {
+            const { calls } = await run(
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes }), maxUploadSizeMb),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(documentOf(calls).filename).to.equal("MyFont.svg");
+            expect(replyTexts(calls)).to.deep.equal([]);
+        });
+
+        it("sends the other formats as an album and names the one too large after the failed ones", async function () {
+            const convertor = sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 });
+            const failingOtf = {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    if (params.extension === Extension.OTF) {
+                        throw new FontConvertorError("The engine failed.");
+                    }
+
+                    return convertor.convert(params);
+                },
+            } as unknown as FontConvertor;
+            const { calls } = await run(
+                middlewareWith(failingOtf, maxUploadSizeMb),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "replyWithMediaGroup",
+                "reply",
+                "reply",
+            ]);
+            expect(albumFilenames(calls)).to.deep.equal(["MyFont.ttf", "MyFont.woff2", "MyFont.eot"]);
+            expect(replyTexts(calls)).to.deep.equal(["Не получилось: OTF.", tooLargeSvg]);
+        });
+
+        it("sends results that add up past the limit in several calls, in the order of the buttons", async function () {
+            const thirdOfLimitBytes = Math.floor(maxRequestFilesBytes / 3);
+            const { calls } = await run(
+                middlewareWith(
+                    sizedConvertor({
+                        [Extension.TTF]: thirdOfLimitBytes,
+                        [Extension.OTF]: thirdOfLimitBytes,
+                        [Extension.WOFF2]: thirdOfLimitBytes,
+                        [Extension.EOT]: maxRequestFilesBytes - thirdOfLimitBytes,
+                        [Extension.SVG]: thirdOfLimitBytes,
+                    }),
+                    maxUploadSizeMb,
+                ),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+            const sent = sendCalls(calls);
+
+            expect(sent.map((call) => call.method)).to.deep.equal(["replyWithMediaGroup", "replyWithMediaGroup"]);
+            expect(sent.map((call) => filenamesOf(call))).to.deep.equal([
+                ["MyFont.ttf", "MyFont.otf", "MyFont.woff2"],
+                ["MyFont.eot", "MyFont.svg"],
+            ]);
+            expect(sent.map((call) => call.args[1])).to.deep.equal([
+                { reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true } },
+                { reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true } },
+            ]);
+            expect(replyTexts(calls)).to.deep.equal([]);
+        });
+
+        it("sends a result left alone by the limit as a plain document", async function () {
+            const halfOfLimitBytes = Math.floor(maxRequestFilesBytes / 2);
+            const { calls } = await run(
+                middlewareWith(
+                    sizedConvertor({
+                        [Extension.TTF]: halfOfLimitBytes,
+                        [Extension.OTF]: halfOfLimitBytes,
+                        [Extension.WOFF2]: halfOfLimitBytes + 1,
+                        [Extension.EOT]: halfOfLimitBytes,
+                        [Extension.SVG]: halfOfLimitBytes,
+                    }),
+                    maxUploadSizeMb,
+                ),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+            const sent = sendCalls(calls);
+
+            expect(sent.map((call) => call.method)).to.deep.equal(["replyWithMediaGroup", "replyWithDocument", "replyWithMediaGroup"]);
+            expect(sent.map((call) => filenamesOf(call))).to.deep.equal([
+                ["MyFont.ttf", "MyFont.otf"],
+                ["MyFont.woff2"],
+                ["MyFont.eot", "MyFont.svg"],
+            ]);
+        });
+
+        it("removes the results of the calls after a failed one and lets the error through", async function () {
+            const error = new Error("The outbox did not answer in time.");
+            const thirdOfLimitBytes = Math.floor(maxRequestFilesBytes / 3);
+            const resultFontPaths: string[] = [];
+            const convertor = sizedConvertor(
+                {
+                    [Extension.TTF]: thirdOfLimitBytes,
+                    [Extension.OTF]: thirdOfLimitBytes,
+                    [Extension.WOFF2]: thirdOfLimitBytes,
+                    [Extension.EOT]: thirdOfLimitBytes,
+                    [Extension.SVG]: thirdOfLimitBytes,
+                },
+                resultFontPaths,
+            );
+
+            const caught = await run(
+                middlewareWith(convertor, maxUploadSizeMb),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+                {
+                    mediaGroupError: error,
+                },
+            ).catch((rejection: unknown) => rejection);
+
+            expect(caught).to.equal(error);
+            // The first call carries TTF, OTF and WOFF2; it may still be sent, so its files stay for the outbox.
+            const isKept = await Promise.all(resultFontPaths.map(async (resultFontPath) => exists(resultFontPath)));
+            expect(isKept).to.deep.equal([true, true, true, false, false]);
+        });
+
+        it("tells it in the locale of the update", async function () {
+            const { calls } = await run(
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 }), maxUploadSizeMb),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+                { locale: "en" },
+            );
+
+            expect(replyTexts(calls)).to.deep.equal(["Could not send SVG: over 1 MB. Telegram does not let bots send such files."]);
+        });
+
+        // The convertor wrote the file, so a size that cannot be read leaves it in no list to remove.
+        it("removes a result whose size cannot be read and lets the error through", async function () {
+            const resultFontPaths: string[] = [];
+            const convertor = sizedConvertor({}, resultFontPaths);
+            const missingResultPath = path.join(tempDir, "missing.svg");
+            const vanishingConvertor = {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    if (params.extension === Extension.SVG) {
+                        return missingResultPath;
+                    }
+
+                    return convertor.convert(params);
+                },
+            } as unknown as FontConvertor;
+
+            const caught = await run(
+                middlewareWith(vanishingConvertor),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            ).catch((rejection: unknown) => rejection);
+
+            expect((caught as NodeJS.ErrnoException).code).to.equal("ENOENT");
+            await Promise.all(resultFontPaths.map(async (resultFontPath) => expect(await exists(resultFontPath)).to.equal(false)));
         });
     });
 

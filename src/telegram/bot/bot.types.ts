@@ -20,4 +20,6 @@ export type BotSettings = {
     authorContact: string;
     // The largest file the bot downloads (getFile): the texts promise no more.
     maxDownloadSizeMb: number;
+    // The largest request the bot uploads files in: a result over it is not sent, and the person is told.
+    maxUploadSizeMb: number;
 };

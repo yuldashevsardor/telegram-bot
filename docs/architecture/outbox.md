@@ -333,7 +333,11 @@ the private limit is a window of `interval` that takes `number` messages.
     Telegram being fixed, measured on one bot on one day; were it sliding, the burst after a window
     would get a 429, which still holds back its chat. A retry counts too: its next pull is a pull of
     the window, and so does every call to a private chat that goes through the outbox, a chat action
-    included, though Telegram may count messages alone.
+    included, though Telegram may count messages alone. An album, `sendMediaGroup`, is one call and
+    so one pull, however many items it carries: Telegram counted no item of an album of documents
+    towards the window ([`real-bot-load-test.md`](./real-bot-load-test.md), "Albums and the
+    window"), so the pull errs on the safe side, and weighing it by its items would only shorten
+    the window further.
 
     A full window holds every message of its chat until it ends, a reply included: a reply behind a
     window filled by bulk messages waits up to `interval`, past `OUTBOX_RESULT_TIMEOUT`, so its
