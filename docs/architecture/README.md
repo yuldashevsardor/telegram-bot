@@ -229,12 +229,12 @@ the siblings share (`convertor/eot/` — the source format).
 **Stands around one sibling** — a sibling leaves the siblings directory for a directory of its
 own only when it has files of its own or a role of its own among the siblings:
 
-- `command/start/`, `command/help/`, `command/bulk-messages/`, `middleware/not-a-file/` and
-  `middleware/file-intake/` keep the command or the middleware together with their `locale/`
-  bundles; `command/help/` also keeps `HelpText`, which builds the text of its bundle for the
-  command and for `UnknownCommandMiddleware`, and `middleware/file-intake/` keeps
-  `FontRejectionClassifier`, which sorts the refusals of the validators for the middleware, and
-  `FontRejection`, the classes it sorts them into;
+- `command/start/`, `command/help/`, `command/bulk-messages/`, `middleware/not-a-file/`,
+  `middleware/file-intake/` and `middleware/conversion/` keep the command or the middleware
+  together with their `locale/` bundles; `command/help/` also keeps `HelpText`, which builds the
+  text of its bundle for the command and for `UnknownCommandMiddleware`, and
+  `middleware/file-intake/` keeps `FontRejectionClassifier`, which sorts the refusals of the
+  validators for the middleware, and `FontRejection`, the classes it sorts them into;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser,
   the range check of the points of an outline and the text codec it shares with `SvgFontPreparer`,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf

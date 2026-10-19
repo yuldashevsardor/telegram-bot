@@ -42,6 +42,7 @@ import { UnknownCommandMiddleware } from "app/telegram/middleware/unknown-comman
 import { NotAFileMiddleware } from "app/telegram/middleware/not-a-file/not-a-file.middleware";
 import { SupportedFormats } from "app/telegram/supported-formats";
 import { FileIntakeMiddleware } from "app/telegram/middleware/file-intake/file-intake.middleware";
+import { ConversionMiddleware } from "app/telegram/middleware/conversion/conversion.middleware";
 import { FontRejectionClassifier } from "app/telegram/middleware/file-intake/font-rejection-classifier";
 import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
 import { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
@@ -196,6 +197,7 @@ export class Container extends InversifyContainer {
         this.bind<UnknownCommandMiddleware>(Tokens.Bot.Middleware.UnknownCommand).to(UnknownCommandMiddleware).inSingletonScope();
         this.bind<NotAFileMiddleware>(Tokens.Bot.Middleware.NotAFile).to(NotAFileMiddleware).inSingletonScope();
         this.bind<FileIntakeMiddleware>(Tokens.Bot.Middleware.FileIntake).to(FileIntakeMiddleware).inSingletonScope();
+        this.bind<ConversionMiddleware>(Tokens.Bot.Middleware.Conversion).to(ConversionMiddleware).inSingletonScope();
 
         // Commands
         this.bind<StartCommand>(Tokens.Bot.Command.Start).to(StartCommand).inSingletonScope();

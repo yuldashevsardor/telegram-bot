@@ -229,6 +229,7 @@ function build(settings: BotSettings = SETTINGS): Harness {
         new RecordingMiddleware("UnknownCommandMiddleware", events),
         new RecordingMiddleware("NotAFileMiddleware", events),
         new RecordingMiddleware("FileIntakeMiddleware", events),
+        new RecordingMiddleware("ConversionMiddleware", events),
         supportedFormats,
         settings,
     );
@@ -278,6 +279,20 @@ function message(text: string, options: { chat?: Chat.PrivateChat | Chat.GroupCh
             },
             text: text,
             ...(isCommand ? { entities: [{ type: "bot_command" as const, offset: 0, length: text.length }] } : {}),
+        },
+    };
+}
+
+// A press of a format button under a question of the bot in the chat.
+function buttonPress(chat: Chat.PrivateChat | Chat.GroupChat): Update {
+    return {
+        update_id: ++updateId,
+        callback_query: {
+            id: String(updateId),
+            chat_instance: "1",
+            from: { id: USER_ID, is_bot: false, first_name: "User" },
+            data: "convert:ttf",
+            message: { message_id: updateId, date: 1, chat: chat, from: ME, text: "question" },
         },
     };
 }
@@ -433,7 +448,7 @@ describe("Bot", function () {
                 {
                     level: "debug",
                     message: "Setup middlewares...",
-                    payload: { middlewares: Array(3).fill("RecordingMiddleware") },
+                    payload: { middlewares: Array(4).fill("RecordingMiddleware") },
                 },
                 { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
             ]);
@@ -495,7 +510,7 @@ describe("Bot", function () {
         });
 
         // Step 7 below step 6: a command the bot knows never reaches it.
-        it("hands an update no command took to the unknown command, the not-a-file answer, then the file intake", async function () {
+        it("hands an update no command took to the unknown command, the not-a-file answer, the file intake, then the conversion", async function () {
             const { bot, events } = await setUp();
 
             await bot.grammy.handleUpdate(message("/unknown"));
@@ -504,8 +519,40 @@ describe("Bot", function () {
                 "UnknownCommandMiddleware",
                 "NotAFileMiddleware",
                 "FileIntakeMiddleware",
+                "ConversionMiddleware",
                 "session write",
             ]);
+        });
+
+        // A press carries no message of its own: the chat and the sender are those of the question
+        // under which the button stands, and the filters read them there.
+        it("runs a press of a button in a private chat through the filters and the session to the conversion", async function () {
+            const { bot, events } = await setUp();
+
+            await bot.grammy.handleUpdate(buttonPress({ id: USER_ID, type: "private", first_name: "User" }));
+
+            expect(events).to.deep.equal([
+                "HasSessionKeyFilter",
+                "IsPrivateChatFilter",
+                "session read",
+                "RequestContextMiddleware",
+                "ResponseTimeMiddleware",
+                "RequestLogMiddleware",
+                "FillUserToContextMiddleware",
+                "UnknownCommandMiddleware",
+                "NotAFileMiddleware",
+                "FileIntakeMiddleware",
+                "ConversionMiddleware",
+                "session write",
+            ]);
+        });
+
+        it("drops a press of a button in a group before the session is read", async function () {
+            const { bot, events } = await setUp();
+
+            await bot.grammy.handleUpdate(buttonPress({ id: -100, type: "group", title: "Group" }));
+
+            expect(events).to.deep.equal(["HasSessionKeyFilter", "IsPrivateChatFilter"]);
         });
     });
 

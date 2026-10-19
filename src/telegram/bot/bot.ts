@@ -47,6 +47,7 @@ export class Bot {
         @inject<Middleware>(Tokens.Bot.Middleware.UnknownCommand) private readonly unknownCommandMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.NotAFile) private readonly notAFileMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.FileIntake) private readonly fileIntakeMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.Conversion) private readonly conversionMiddleware: Middleware,
         @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
         private readonly settings: BotSettings = configValue("bot"),
     ) {
@@ -83,8 +84,14 @@ export class Bot {
         await this.setupCommands();
         // Below the commands, for what none of them took: an unknown command first, so that it does
         // not get the hint for a text, and the hint before the file, so that a GIF, which Telegram
-        // puts into document as well, gets the hint.
-        await this.setupMiddlewares([this.unknownCommandMiddleware, this.notAFileMiddleware, this.fileIntakeMiddleware]);
+        // puts into document as well, gets the hint. A press of a format button is no message, and
+        // the three pass it on to the conversion.
+        await this.setupMiddlewares([
+            this.unknownCommandMiddleware,
+            this.notAFileMiddleware,
+            this.fileIntakeMiddleware,
+            this.conversionMiddleware,
+        ]);
 
         this.isSetup = true;
     }

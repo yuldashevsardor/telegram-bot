@@ -70,8 +70,9 @@ unblocks a group by hand with `make inbox-retry` or `make inbox-skip` (see "Unbl
 An update without a user or a chat is not stored: `user_id` and `chat_id` are `NOT NULL`, and the
 polling source drops such an update before the push, logging a warning, as `HasSessionKeyFilter`
 would drop it in the pipeline ([`bot.md`](./bot.md)). Such an update has no session, so the
-pipeline would drop it anyway, and with `ALLOWED_UPDATES` of `message` alone (`bot.types.ts`) none
-is requested, as the comment of the filter says.
+pipeline would drop it anyway, and with `ALLOWED_UPDATES` of `message` and `callback_query`
+(`bot.types.ts`) none is requested, as the comment of the filter says: a press of a button comes
+with the message the button stands under, and its chat ([`bot.md`](./bot.md)).
 
 ## Group states
 
