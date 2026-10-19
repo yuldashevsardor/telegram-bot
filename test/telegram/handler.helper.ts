@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import path from "path";
 import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Message, Update, UserFromGetMe } from "@grammyjs/types";
@@ -7,17 +8,18 @@ import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import { initialPayload } from "app/telegram/session/session.helper";
-import type { SupportedFormats } from "app/telegram/supported-formats";
+import { SupportedFormats } from "app/telegram/supported-formats";
 import { HelpText } from "app/telegram/command/help/help-text";
 import { Extension } from "app/font-convertor/font-convertor.types";
+import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
+import type { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-// The formats in the order of the customer journey.
-const ORDERED_EXTENSIONS = [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT, Extension.SVG];
-
 // The sources of a pair matrix where EOT is only a target.
-const SOURCE_EXTENSIONS_WITHOUT_EOT: Extension[] = ORDERED_EXTENSIONS.filter((extension) => extension !== Extension.EOT);
+const SOURCE_EXTENSIONS_WITHOUT_EOT: Extension[] = Object.values(Extension).filter((extension) => extension !== Extension.EOT);
 
 // What a handler passed to ctx.reply() besides the text: the keyboard, the message replied to.
 export type ReplyOptions = Parameters<Context["reply"]>[1];
@@ -26,33 +28,28 @@ export type ReplyContext = { ctx: Context; replies: string[]; replyOptions: Repl
 
 export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[]; isPassedOn: boolean };
 
-// The lists SupportedFormats gives for the pair matrix of today, complete: every format converts
-// into every other.
-export const supportedFormats = {
-    toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
-    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
-    toSourceList: (): Extension[] => ORDERED_EXTENSIONS,
-    toTargetList: (sourceExtension: Extension): Extension[] => ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension),
-} as SupportedFormats;
+// SupportedFormats over the pair table of today, complete: every format converts into every other.
+// The lists do not build a convertor, so the factory gets none of its dependencies.
+export const supportedFormats = new SupportedFormats(new ConvertorFactory({} as FontForge, {} as FontValidatorResolver, {} as EotPacker));
 
-// The lists for a pair matrix where EOT is only a target, for a spec of a text that lists the
-// sources: in the matrix of today the list of sources equals the list of all formats, and only a
-// list of its own tells which of the two a reply took.
-export const supportedFormatsWithEotOnlyTarget = {
-    toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
-    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, SVG",
-    toSourceList: (): Extension[] => SOURCE_EXTENSIONS_WITHOUT_EOT,
-    toTargetList: (sourceExtension: Extension): Extension[] => {
-        if (!SOURCE_EXTENSIONS_WITHOUT_EOT.includes(sourceExtension)) {
+// SupportedFormats over a pair matrix where EOT is only a target, for a spec of a text that lists
+// formats, the sources or all of them: in the matrix of today the two lists are equal, and only a
+// matrix of its own tells which of the two a reply took.
+export const supportedFormatsWithEotOnlyTarget = new SupportedFormats({
+    getSupportedExtensions: () => Object.values(Extension),
+    getSourceExtensions: () => SOURCE_EXTENSIONS_WITHOUT_EOT,
+    getTargetExtensions: (fromExtension: Extension) => {
+        if (!SOURCE_EXTENSIONS_WITHOUT_EOT.includes(fromExtension)) {
             return [];
         }
 
-        return ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension);
+        return Object.values(Extension).filter((extension) => extension !== fromExtension);
     },
-} as SupportedFormats;
+} as unknown as ConvertorFactory);
 
-// The help with a contact of its own and the size limit of the cloud Bot API.
-export const helpText = new HelpText(supportedFormats, "@author", 20);
+// The help with a contact of its own and the size limit of the cloud Bot API, over the matrix where
+// EOT is only a target: the help lists every format.
+export const helpText = new HelpText(supportedFormatsWithEotOnlyTarget, "@author", 20);
 
 // The context of a private message translated by the bundles of src/telegram, with the texts of
 // ctx.reply() and its options recorded instead of sent. A session passed in is shared with the runs

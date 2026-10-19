@@ -4,11 +4,11 @@ import { expect } from "chai";
 import { StartCommand } from "app/telegram/command/start/start.command";
 import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
-import { commandMessage, runHandler, supportedFormats } from "test/telegram/handler.helper";
+import { commandMessage, runHandler, supportedFormatsWithEotOnlyTarget } from "test/telegram/handler.helper";
 
 describe("StartCommand", function () {
     it("replies with the welcome of the customer journey on /start", async function () {
-        const { replies, isPassedOn } = await runHandler(new StartCommand(supportedFormats), commandMessage("/start"));
+        const { replies, isPassedOn } = await runHandler(new StartCommand(supportedFormatsWithEotOnlyTarget), commandMessage("/start"));
 
         expect(replies).to.deep.equal([
             [
@@ -21,7 +21,7 @@ describe("StartCommand", function () {
     });
 
     it("replies in the locale of the update", async function () {
-        const { replies } = await runHandler(new StartCommand(supportedFormats), commandMessage("/start"), "en");
+        const { replies } = await runHandler(new StartCommand(supportedFormatsWithEotOnlyTarget), commandMessage("/start"), "en");
 
         expect(replies).to.deep.equal([
             [
@@ -37,7 +37,7 @@ describe("StartCommand", function () {
     // keys in every locale".
     it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
-        const { descriptionKey } = new StartCommand(supportedFormats);
+        const { descriptionKey } = new StartCommand(supportedFormatsWithEotOnlyTarget);
 
         expect(fluent.translate(DEFAULT_LOCALE, descriptionKey)).to.not.equal(`{${descriptionKey}}`);
     });

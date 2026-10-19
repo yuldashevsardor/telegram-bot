@@ -160,7 +160,8 @@ describe("FileIntakeMiddleware", function () {
         expect(replies).to.deep.equal(["Файл больше 20 МБ — Telegram не даёт ботам скачивать такие файлы."]);
     });
 
-    for (const fileName of ["notes.pdf", "MyFont", ".woff"]) {
+    // EOT is only a target in the matrix of the spec, so an EOT file is no source.
+    for (const fileName of ["notes.pdf", "MyFont", ".woff", "MyFont.eot"]) {
         it(`refuses "${fileName}" by its name without downloading it`, async function () {
             const { replies, downloader } = await run(document({ file_name: fileName }));
 
