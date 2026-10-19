@@ -206,13 +206,14 @@ sfnt validator").
 
 So the scripts of the targets that write `post` 2.0 count the glyph names before `generate()`
 (`FontForge.refuseGlyphNamesPastPostCall` of `refuseGlyphNamesPastScript`) and raise past 65 278:
-`convertToTtfScript`, which TTF runs and the pairs into EOT on their way through TTF ("EOT"), and
-`convertToWoffScript` when the outlines are quadratic, both after the flattening. The count is the
-one of CFF, every glyph but `.notdef`, so a font that would fit thanks to standard names such as
-`.null` or `space` is refused all the same, as the owner accepted for CFF ("Glyph names in CFF").
-That takes in a TTF the bot wrote itself: the encoded font of 65 278 names above comes out with
-`.null` and `nonmarkingreturn` added, and sent back into TTF or WOFF it counts 65 280 and is
-refused. A font with no encoded glyph gets neither and passes the count again.
+`convertToTtfScript`, which TTF runs and the pairs into EOT from every format but TTF on their way
+through TTF ("EOT"), and `convertToWoffScript` when the outlines are quadratic, both after the
+flattening. `ttf → eot` packs its source without the engine, and nothing counts its names. The
+count is the one of CFF, every glyph but `.notdef`, so a font that would fit thanks to standard
+names such as `.null` or `space` is refused all the same, as the owner accepted for CFF ("Glyph
+names in CFF"). That takes in a TTF the bot wrote itself: the font of 65 278 names above comes out
+with `.null` and `nonmarkingreturn` added, and sent on into WOFF or WOFF2 it counts 65 280 and is
+refused.
 
 ## Checking the result
 
