@@ -13,8 +13,9 @@ FontConvertor.convert({ originPath, extension })
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
     source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
     argument (SvgFontPreparer, "Reading SVG"); the script flattens a CID-keyed font for every
-    target but OTF ("CID-keyed fonts") and fails for a target that writes a name-keyed CFF when the
-    font has more glyph names than that holds ("Glyph names in CFF")
+    target but OTF ("CID-keyed fonts") and fails when the font has more glyph names than the
+    name-keyed CFF or the post 2.0 the target writes holds ("Glyph names in CFF", "Glyph names in
+    post")
   → the validator of the target format accepts the result (FontValidatorResolver), otherwise
     FontConvertorError ("Checking the result")
 ```
@@ -143,11 +144,11 @@ the check `Alphabetic` has the `BlueValues` `[-13, 0, 544, 557, 735, 747]`, `Pro
 flattened result `[-20, 0, 543, 543, 733, 733]`. Hinting is not among the facts the check compares,
 so it does not see this.
 
-Flattening names every glyph, and a name-keyed CFF holds only so many names ("Glyph names in
-CFF"). The region subset `NotoSansSC-Regular.otf` of noto-cjk, 31 036 glyphs, converts whole into
-every format. The whole Noto Sans CJK SC, 65 535 glyphs, converts whole into OTF and SVG; into WOFF
-and WOFF2 the script refuses its 65 534 flattened glyph names, and into TTF and EOT it is past the
-glyph limit of sfnt ("Checking the result").
+Flattening names every glyph, and a name-keyed CFF and a `post` 2.0 hold only so many names
+("Glyph names in CFF", "Glyph names in post"). The region subset `NotoSansSC-Regular.otf` of
+noto-cjk, 31 036 glyphs, converts whole into every format. The whole Noto Sans CJK SC, 65 535
+glyphs, converts whole into OTF and SVG; into every other format the script refuses its 65 534
+flattened glyph names.
 
 ## Glyph names in CFF
 
@@ -169,18 +170,50 @@ it: no validator reads what `CFF ` holds (the class comment of `SfntFontValidato
 ([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)).
 
 So the scripts of the targets that write a name-keyed CFF count the glyph names before `generate()`
-(`FontForge.refuseGlyphNamesPastCffScript`) and raise past 65 140, the 65 145 strings less the five
-of the Top DICT. The engine exits with an error, and the conversion fails as on any failure of the
-engine. `convertToOtfScript` counts unless the font is CID-keyed: a CID-keyed CFF refers to its
-glyphs by CID, and an OTF is written CID-keyed ("CID-keyed fonts"). `convertToWoffScript`, which
-WOFF and WOFF2 run, counts after the flattening and only when the outlines are cubic: fontforge
-writes quadratic ones into `glyf` and the names into `post`. TTF and SVG are not counted.
+(`FontForge.refuseGlyphNamesPastCffCall` of `refuseGlyphNamesPastScript`) and raise past 65 140,
+the 65 145 strings less the five of the Top DICT. The engine exits with an error, and the conversion
+fails as on any failure of the engine. `convertToOtfScript` counts unless the font is CID-keyed: a
+CID-keyed CFF refers to its glyphs by CID, and an OTF is written CID-keyed ("CID-keyed fonts").
+`convertToWoffScript`, which WOFF and WOFF2 run, counts after the flattening and against this limit
+only when the outlines are cubic: fontforge writes quadratic ones into `glyf` and the names into
+`post` ("Glyph names in post"). SVG is not counted.
 
 The count takes every glyph but `.notdef` and does not tell a standard name, such as `A` or
 `space`, from one of the font's own, nor a standard string of the Top DICT, such as the version
 `001.000`. A font of more than 65 140 glyphs besides `.notdef` that would fit thanks to standard
 names is refused all the same. The owner accepted this: an exact count would carry the 391
 standard strings in the script, and a font that close to the limit is not in the corpus.
+
+## Glyph names in post
+
+fontforge 20230101 writes the glyph names of a TrueType font, a TTF and a WOFF or a WOFF2 with
+quadratic outlines, into a `post` of version 2.0; into an OTF and a WOFF with cubic outlines it
+writes a `post` 3.0, which holds no names. `post` 2.0 points at the name of each glyph by an index
+of 16 bits: 0 to 257 are the standard Macintosh names, 258 on the strings of the font's own, so a
+font has 65 278 names of its own at most. The glyphs fontforge adds to a TrueType font, `.notdef`,
+`.null` and `nonmarkingreturn`, take standard names: a font of 65 278 `nameN` glyphs encoded from
+U+4E00 comes back from TTF with all three and every name whole.
+
+Past the last index fontforge writes the font with a zero exit code and wraps the indexes onto the
+standard names. It prints "Internal Error: Attempt to output 65536 into a 16-bit field. It will be
+truncated and the file may not be useful" once and keeps the strings past the last index in `post`,
+pointed at by none. Measured with fontTools 4.60.2 on fonts of `glyphN` names that fontforge wrote
+into TTF and WOFF: of 65 300 names glyph 65 279 comes back `.notdef`, the next ones `.null`,
+`nonmarkingreturn`, `space` and on through the standard names; fontforge reads the WOFF2 of the same
+font back with the same names. The validators of the result accept each of them: the sfnt validator
+checks where the strings an index points at lie, not that every glyph has a name of its own ("The
+sfnt validator").
+
+So the scripts of the targets that write `post` 2.0 count the glyph names before `generate()`
+(`FontForge.refuseGlyphNamesPastPostCall` of `refuseGlyphNamesPastScript`) and raise past 65 278:
+`convertToTtfScript`, which TTF runs and the pairs into EOT from every format but TTF on their way
+through TTF ("EOT"), and `convertToWoffScript` when the outlines are quadratic, both after the
+flattening. `ttf → eot` packs its source without the engine, and nothing counts its names. The
+count is the one of CFF, every glyph but `.notdef`, so a font that would fit thanks to standard
+names such as `.null` or `space` is refused all the same, as the owner accepted for CFF ("Glyph
+names in CFF"). That takes in a TTF the bot wrote itself: the font of 65 278 names above comes out
+with `.null` and `nonmarkingreturn` added, and sent on into WOFF or WOFF2 it counts 65 280 and is
+refused.
 
 ## Checking the result
 
@@ -195,7 +228,9 @@ the pair. The check is in `FontConvertor` and not in the pairs, so a pair called
 pair specs call it, returns its result unchecked. The conversion check converts through
 `FontConvertor` (`testing.md`, "The conversion check"), so a result of the corpus the validators
 reject fails it as it would fail the bot. A rejected result stays on disk, as what a failed pair
-wrote does. The answer of the validator names the result in `path` of its payload.
+wrote does. The answer of the validator names the result in `path` of its payload. A font past
+the glyph limit of sfnt no longer reaches the `generate()` of TTF: its glyph names are past `post`
+2.0 ("Glyph names in post"). The check stays for what the scripts do not count.
 
 The caps the WOFF and WOFF2 validators set on a source hold for a result too: 32 MiB of sfnt in a
 WOFF (`MAX_SFNT_SIZE_BYTES`), 30 MiB in a WOFF2 (`DECODER_BUFFER_SIZE_BYTES`). A valid result past

@@ -27,9 +27,11 @@ export class FontConvertor {
         try {
             const convertor = this.convertorFactory.get(originExtension as Extension, params.extension);
             await convertor.convert(params.originPath, newFontPath);
-            // The engine can exit with 0 and leave nothing or not a font: past the 65 535 glyphs of
-            // sfnt fontforge 20230101 writes a TTF of 0 bytes. So the result meets the validator a
-            // source of its format meets.
+            // The engine can exit with 0 and leave nothing or not a font, so the result meets the
+            // validator a source of its format meets. Past the 65 535 glyphs of sfnt fontforge 20230101
+            // writes a TTF of 0 bytes; the scripts refuse such a font by its glyph names before that,
+            // and the check stays for what they do not count (docs/architecture/font-convertor.md,
+            // "Checking the result").
             await this.fontValidatorResolver.get(params.extension).validate(newFontPath);
         } catch (error) {
             throw FontConvertorError.byError(error);

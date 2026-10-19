@@ -43,6 +43,8 @@ describe("FontForge.convert", function () {
     )
         .getSupportedExtensions()
         .filter((extension) => extension !== Extension.EOT);
+    // A case past a glyph-name limit writes and reads a font of some 65 000 glyphs.
+    const glyphNameLimitCaseTimeoutMs = 30_000;
     let workDir: string;
 
     beforeEach(async function () {
@@ -176,12 +178,11 @@ describe("FontForge.convert", function () {
     describe("past the glyph names of a name-keyed CFF", function () {
         // 65 536 string IDs, less the 391 standard strings and the 5 Top DICT strings fontforge writes.
         const cffGlyphNameCountMax = 65_140;
-        const caseTimeoutMs = 30_000;
         let sourceDir: string;
         let cidKeyedPastCffPath: string;
         let trueTypePastCffPath: string;
 
-        this.timeout(caseTimeoutMs);
+        this.timeout(glyphNameLimitCaseTimeoutMs);
 
         before(async function () {
             sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-forge-cff-"));
@@ -204,14 +205,7 @@ describe("FontForge.convert", function () {
                 cidKeyedPastCffPath,
                 String(cffGlyphNameCountMax),
             ]);
-            const trueTypeScript = [
-                "import fontforge, sys",
-                "font = fontforge.font()",
-                "for index in range(int(sys.argv[2])):",
-                '    font.createChar(-1, "glyph%d" % index).width = 500',
-                "font.generate(sys.argv[1])",
-            ].join("\n");
-            await ProcessHelper.run("fontforge", ["-c", trueTypeScript, trueTypePastCffPath, String(cffGlyphNameCountMax + 1)]);
+            await writeTrueTypeFontWithGlyphs(trueTypePastCffPath, cffGlyphNameCountMax + 1);
         });
 
         after(async function () {
@@ -227,12 +221,7 @@ describe("FontForge.convert", function () {
 
             // A name past the limit keeps its text in the CFF and loses its string ID, so the names
             // are read back: a wrapped one comes back as a standard string.
-            const namesScript = [
-                "import fontforge, sys",
-                'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("glyph")}))',
-            ].join("\n");
-            const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, distPath]);
-            expect(Number(stdout)).to.equal(cffGlyphNameCountMax);
+            expect(await ownGlyphNameCount(distPath)).to.equal(cffGlyphNameCountMax);
         });
 
         it("refuses to write into otf a font with one glyph name more than a name-keyed CFF holds", async function () {
@@ -284,20 +273,68 @@ describe("FontForge.convert", function () {
 
             await new WoffFontValidator(new SfntFontValidator()).validate(distPath);
         });
+    });
 
-        // Cubic outlines with names of the spec's own: an SVG source needs no engine to make.
-        function svgFontWithGlyphs(glyphCount: number): string {
-            const glyphs: Array<string> = [];
-            for (let glyphNumber = 1; glyphNumber <= glyphCount; glyphNumber++) {
-                glyphs.push(`<glyph glyph-name="glyph${glyphNumber}" d="M0 0h100v100h-100z"/>`);
-            }
+    // fontforge 20230101 writes post 2.0 past the names it holds with a zero exit code, the names
+    // wrapped onto the standard Macintosh names.
+    describe("past the glyph names of post 2.0", function () {
+        // 65 536 name indexes, less the 258 standard Macintosh names.
+        const postGlyphNameCountMax = 65_278;
 
-            return (
-                '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
-                glyphs.join("") +
-                "</font></svg>"
+        this.timeout(glyphNameLimitCaseTimeoutMs);
+
+        it("writes into ttf a font with as many glyph names as post 2.0 holds", async function () {
+            const srcPath = path.join(workDir, "font.svg");
+            const distPath = path.join(workDir, "result.ttf");
+            await fs.writeFile(srcPath, svgFontWithGlyphs(postGlyphNameCountMax));
+
+            await fontForge.convert(srcPath, distPath);
+
+            // A name past the limit points at a standard name, so the names are read back.
+            expect(await ownGlyphNameCount(distPath)).to.equal(postGlyphNameCountMax);
+        });
+
+        it("refuses to write into ttf a font with one glyph name more than post 2.0 holds", async function () {
+            const srcPath = path.join(workDir, "font.svg");
+            const distPath = path.join(workDir, "result.ttf");
+            await fs.writeFile(srcPath, svgFontWithGlyphs(postGlyphNameCountMax + 1));
+
+            const error = await rejectionOf(() => fontForge.convert(srcPath, distPath));
+
+            expect(error).to.be.instanceOf(ExecuteError);
+            expect((error as ExecuteError).message).to.include(
+                `${postGlyphNameCountMax + 1} glyph names, post 2.0 holds ${postGlyphNameCountMax}`,
             );
-        }
+            expect(await FileHelper.isExist(distPath)).to.be.false;
+        });
+
+        it("writes into woff a TrueType font with as many glyph names as post 2.0 holds", async function () {
+            const trueTypeAtPostPath = path.join(workDir, "true-type.ttf");
+            const distPath = path.join(workDir, "result.woff");
+            // fontforge adds .null and nonmarkingreturn to the TrueType font it writes, and the count
+            // holds them against the limit.
+            const addedGlyphCount = 2;
+            const ownGlyphCount = postGlyphNameCountMax - addedGlyphCount;
+            await writeTrueTypeFontWithGlyphs(trueTypeAtPostPath, ownGlyphCount);
+
+            await fontForge.convert(trueTypeAtPostPath, distPath);
+
+            expect(await ownGlyphNameCount(distPath)).to.equal(ownGlyphCount);
+        });
+
+        it("refuses to write into woff a TrueType font past the glyph names of post 2.0", async function () {
+            const trueTypePastPostPath = path.join(workDir, "true-type.ttf");
+            const distPath = path.join(workDir, "result.woff");
+            // short-post writes a post 3.0, which holds no names, so the source itself comes out whole.
+            await writeTrueTypeFontWithGlyphs(trueTypePastPostPath, postGlyphNameCountMax + 1, { generateFlags: ["short-post"] });
+
+            const error = await rejectionOf(() => fontForge.convert(trueTypePastPostPath, distPath));
+
+            expect(error).to.be.instanceOf(ExecuteError);
+            expect((error as ExecuteError).message).to.include(`post 2.0 holds ${postGlyphNameCountMax}`);
+            expect((error as ExecuteError).payload).to.deep.equal({ path: trueTypePastPostPath });
+            expect(await FileHelper.isExist(distPath)).to.be.false;
+        });
     });
 
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
@@ -471,6 +508,51 @@ describe("FontForge.convert", function () {
         parser.write(await fs.readFile(svgPath, "utf8")).close();
 
         return glyphs;
+    }
+
+    // Cubic outlines with names of the spec's own: an SVG source needs no engine to make. Reading a
+    // glyph whose name it cannot take from the font, fontforge names it glyphN after its index, so
+    // these names, like those of writeTrueTypeFontWithGlyphs(), have another prefix.
+    function svgFontWithGlyphs(glyphCount: number): string {
+        const glyphs: Array<string> = [];
+        for (let glyphNumber = 1; glyphNumber <= glyphCount; glyphNumber++) {
+            glyphs.push(`<glyph glyph-name="name${glyphNumber}" d="M0 0h100v100h-100z"/>`);
+        }
+
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+            glyphs.join("") +
+            "</font></svg>"
+        );
+    }
+
+    // A TrueType font of empty glyphs named as those of svgFontWithGlyphs(). generateFlags are the
+    // flags of fontforge's generate().
+    async function writeTrueTypeFontWithGlyphs(
+        fontPath: string,
+        glyphCount: number,
+        options: { generateFlags?: Array<string> } = {},
+    ): Promise<void> {
+        const trueTypeScript = [
+            "import fontforge, sys",
+            "font = fontforge.font()",
+            "for glyphNumber in range(1, int(sys.argv[2]) + 1):",
+            '    font.createChar(-1, "name%d" % glyphNumber).width = 500',
+            "font.generate(sys.argv[1], flags=tuple(sys.argv[3:]))",
+        ].join("\n");
+        await ProcessHelper.run("fontforge", ["-c", trueTypeScript, fontPath, String(glyphCount), ...(options.generateFlags ?? [])]);
+    }
+
+    // The nameN glyph names of svgFontWithGlyphs() and writeTrueTypeFontWithGlyphs() the font holds,
+    // each counted once.
+    async function ownGlyphNameCount(fontPath: string): Promise<number> {
+        const namesScript = [
+            "import fontforge, sys",
+            'print(len({glyph.glyphname for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.glyphname.startswith("name")}))',
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", namesScript, fontPath]);
+
+        return Number(stdout);
     }
 
     function fixture(extension: Extension): string {

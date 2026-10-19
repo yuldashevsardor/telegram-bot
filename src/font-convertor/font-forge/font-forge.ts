@@ -19,6 +19,11 @@ export class FontForge {
     private static readonly CFF_TOP_DICT_STRING_COUNT = 5;
     private static readonly CFF_GLYPH_NAME_COUNT_MAX =
         FontForge.CFF_STRING_ID_COUNT - FontForge.CFF_STANDARD_STRING_COUNT - FontForge.CFF_TOP_DICT_STRING_COUNT;
+    // post 2.0 points at a glyph name by an index of 16 bits, and the indexes below 258 are the standard
+    // Macintosh names (docs/architecture/font-convertor.md, "Glyph names in post").
+    private static readonly POST_NAME_INDEX_COUNT = 0x10000;
+    private static readonly POST_STANDARD_NAME_COUNT = 258;
+    private static readonly POST_GLYPH_NAME_COUNT_MAX = FontForge.POST_NAME_INDEX_COUNT - FontForge.POST_STANDARD_NAME_COUNT;
     // EOT is left out on purpose: EotPacker takes the envelope off and puts it on, and the engine
     // reads or writes a plain sfnt (docs/architecture/invariants.md; docs/architecture/font-convertor.md,
     // "EOT"; issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
@@ -45,37 +50,43 @@ export class FontForge {
     // would only merge the hints of the sub-fonts and name every glyph, past what a name-keyed CFF
     // holds in the largest fonts (docs/architecture/font-convertor.md, "CID-keyed fonts").
     private readonly flattenCidFontScript = ["if font.is_cid:", "    font.cidFlatten()"];
-    // Past the glyph names a name-keyed CFF holds fontforge writes the font with a zero exit code and
-    // the names wrapped onto the standard strings of CFF, so the script fails before generate(). A
+    // Past the glyph names a name-keyed CFF or post 2.0 holds fontforge writes the font with a zero exit
+    // code and the names wrapped onto the standard ones, so the script fails before generate(). A
     // glyph with a standard name takes no string, and the count holds it against the limit all the
-    // same (docs/architecture/font-convertor.md, "Glyph names in CFF").
-    private readonly refuseGlyphNamesPastCffScript = [
-        "def refuseGlyphNamesPastCff():",
+    // same (docs/architecture/font-convertor.md, "Glyph names in CFF", "Glyph names in post").
+    private readonly refuseGlyphNamesPastScript = [
+        "def refuseGlyphNamesPast(glyphNameCountMax, nameTableLabel):",
         '    glyphNameCount = sum(1 for glyph in font.glyphs() if glyph.glyphname != ".notdef")',
-        `    if glyphNameCount > ${FontForge.CFF_GLYPH_NAME_COUNT_MAX}:`,
-        `        raise ValueError("%d glyph names, a name-keyed CFF holds ${FontForge.CFF_GLYPH_NAME_COUNT_MAX}" % glyphNameCount)`,
+        "    if glyphNameCount > glyphNameCountMax:",
+        '        raise ValueError("%d glyph names, %s holds %d" % (glyphNameCount, nameTableLabel, glyphNameCountMax))',
     ];
+    private readonly refuseGlyphNamesPastCffCall = `refuseGlyphNamesPast(${FontForge.CFF_GLYPH_NAME_COUNT_MAX}, "a name-keyed CFF")`;
+    private readonly refuseGlyphNamesPastPostCall = `refuseGlyphNamesPast(${FontForge.POST_GLYPH_NAME_COUNT_MAX}, "post 2.0")`;
     // A CID-keyed CFF names its glyphs by CID, not by string.
     private readonly convertToOtfScript = [
         ...this.openFontAndUnencodeGlyphsScript,
-        ...this.refuseGlyphNamesPastCffScript,
+        ...this.refuseGlyphNamesPastScript,
         "if not font.is_cid:",
-        "    refuseGlyphNamesPastCff()",
+        `    ${this.refuseGlyphNamesPastCffCall}`,
         "font.generate(sys.argv[2])",
     ].join("\n");
     private readonly convertToTtfScript = [
         ...this.openFontAndUnencodeGlyphsScript,
         ...this.flattenCidFontScript,
+        ...this.refuseGlyphNamesPastScript,
+        this.refuseGlyphNamesPastPostCall,
         "font.generate(sys.argv[2])",
     ].join("\n");
-    // fontforge writes the outlines of a WOFF or a WOFF2 as the font has them: quadratic ones as glyf,
-    // cubic ones as CFF.
+    // fontforge writes the outlines of a WOFF or a WOFF2 as the font has them: quadratic ones as glyf
+    // with the names in post, cubic ones as CFF.
     private readonly convertToWoffScript = [
         ...this.openFontAndUnencodeGlyphsScript,
         ...this.flattenCidFontScript,
-        ...this.refuseGlyphNamesPastCffScript,
-        "if not font.layers[font.activeLayer].is_quadratic:",
-        "    refuseGlyphNamesPastCff()",
+        ...this.refuseGlyphNamesPastScript,
+        "if font.layers[font.activeLayer].is_quadratic:",
+        `    ${this.refuseGlyphNamesPastPostCall}`,
+        "else:",
+        `    ${this.refuseGlyphNamesPastCffCall}`,
         "font.generate(sys.argv[2])",
     ].join("\n");
     // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script

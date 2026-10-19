@@ -159,6 +159,8 @@ describe("FontConvertor", function () {
     });
 
     // fontforge exits with 0 and writes a TTF of 0 bytes for a font past the 65 535 glyphs of sfnt.
+    // The scripts refuse that font by its glyph names first, so the fake engine stands for an empty
+    // result of a case they do not count.
     it("rejects an empty result of the engine", async function () {
         writeEngineResult = (toPath: string): Promise<void> => fs.writeFile(toPath, new Uint8Array(0));
 
