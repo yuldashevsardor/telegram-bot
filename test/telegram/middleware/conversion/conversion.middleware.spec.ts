@@ -877,6 +877,18 @@ describe("ConversionMiddleware", function () {
                 });
             }
 
+            // The bot marks the buttons of formats alone.
+            for (const data of ["sent:all", "failed:pdf"]) {
+                it(`answers "${data}", which names no format, with no toast and logs it`, async function () {
+                    const { calls } = await run(realMiddleware(), press(data, question(sourceMessage("MyFont.woff"))));
+
+                    expect(calls).to.deep.equal([{ method: "answerCallbackQuery", args: [undefined] }]);
+                    expect(logger.warnings).to.deep.equal([
+                        { message: "The marked button names no format.", payload: { callbackData: data } },
+                    ]);
+                });
+            }
+
             it("answers in the locale of the update", async function () {
                 const sent = await run(realMiddleware(), press("sent:ttf", question(sourceMessage("MyFont.woff"))), { locale: "en" });
                 const failed = await run(realMiddleware(), press("failed:svg", question(sourceMessage("MyFont.woff"))), { locale: "en" });

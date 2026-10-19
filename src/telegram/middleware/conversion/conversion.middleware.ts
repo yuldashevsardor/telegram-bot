@@ -15,8 +15,8 @@ import { Middleware } from "app/telegram/middleware/middleware";
 import type { Context } from "app/telegram/bot/bot.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
 import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
-import type { MarkedPress } from "app/telegram/format-buttons/format-buttons.types";
-import { FormatMark } from "app/telegram/format-buttons/format-buttons.types";
+import type { FormatButtonData, FormatMark } from "app/telegram/format-buttons/format-buttons.types";
+import { FormatButtonCommand } from "app/telegram/format-buttons/format-buttons.types";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
@@ -48,8 +48,8 @@ export class ConversionMiddleware extends Middleware {
     private static readonly REQUEST_OVERHEAD_MARGIN_BYTES = 64 * 1024;
     // The answer to a press of a marked button, which converts nothing.
     private static readonly MARKED_PRESS_ANSWER_KEYS: Record<FormatMark, string> = {
-        [FormatMark.Sent]: "conversion-middleware-already-sent",
-        [FormatMark.Failed]: "conversion-middleware-already-failed",
+        [FormatButtonCommand.Sent]: "conversion-middleware-already-sent",
+        [FormatButtonCommand.Failed]: "conversion-middleware-already-failed",
     };
 
     public constructor(
@@ -72,22 +72,22 @@ export class ConversionMiddleware extends Middleware {
             return next();
         }
 
-        const markedPress = this.formatButtons.findMarkedPress(callbackData);
+        const buttonData = this.formatButtons.parse(callbackData);
 
-        if (markedPress !== undefined) {
-            await this.answerMarkedPress(ctx, markedPress);
-
-            return;
+        if (buttonData === undefined) {
+            return next();
         }
 
-        if (!callbackData.startsWith(FormatButtons.CALLBACK_DATA_PREFIX)) {
-            return next();
+        if (buttonData.command !== FormatButtonCommand.Convert) {
+            await this.answerMarkedPress(ctx, buttonData.command, buttonData);
+
+            return;
         }
 
         // At once, so that the client stops its spinner: the conversion takes seconds.
         await this.answerPress(ctx);
 
-        const targetName = callbackData.slice(FormatButtons.CALLBACK_DATA_PREFIX.length);
+        const targetName = buttonData.format;
         const source = this.findSource(ctx);
 
         if (source === undefined) {
@@ -124,10 +124,20 @@ export class ConversionMiddleware extends Middleware {
     }
 
     // A marked button converts nothing: a repeat would send the same file, or fail the same way.
-    private async answerMarkedPress(ctx: Context, markedPress: MarkedPress): Promise<void> {
-        const answerKey = ConversionMiddleware.MARKED_PRESS_ANSWER_KEYS[markedPress.mark];
+    private async answerMarkedPress(ctx: Context, mark: FormatMark, buttonData: FormatButtonData): Promise<void> {
+        const targetExtension = this.formatButtons.findTargetExtension(buttonData);
 
-        await this.answerPress(ctx, ctx.t(answerKey, { format: markedPress.targetExtension.toUpperCase() }));
+        // The bot marks the buttons of formats alone: such data comes from no button of the bot.
+        if (targetExtension === undefined) {
+            this.logger.warning("The marked button names no format.", { callbackData: ctx.callbackQuery?.data });
+            await this.answerPress(ctx);
+
+            return;
+        }
+
+        const answerKey = ConversionMiddleware.MARKED_PRESS_ANSWER_KEYS[mark];
+
+        await this.answerPress(ctx, ctx.t(answerKey, { format: targetExtension.toUpperCase() }));
     }
 
     // toastText is shown to the person over the chat; without it the answer only stops the spinner.
@@ -416,11 +426,11 @@ export class ConversionMiddleware extends Middleware {
         const marks = new Map<Extension, FormatMark>();
 
         for (const result of outcome.results) {
-            marks.set(result.targetExtension, FormatMark.Sent);
+            marks.set(result.targetExtension, FormatButtonCommand.Sent);
         }
 
         for (const failedExtension of [...outcome.failedExtensions, ...outcome.tooLargeExtensions]) {
-            marks.set(failedExtension, FormatMark.Failed);
+            marks.set(failedExtension, FormatButtonCommand.Failed);
         }
 
         return marks;

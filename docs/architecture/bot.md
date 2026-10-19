@@ -241,17 +241,20 @@ session is the album `NotAFileMiddleware` answered last (below).
   buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows: the targets
   of the pairs of the source (`SupportedFormats.toTargetList()`). The reply
   sets `allow_sending_without_reply`: a document deleted during the check would otherwise fail the
-  reply with a 400, which blocks the chat in the outbox. The callback data of a button names the
-  target alone, `convert:<extension>` or `convert:all`: a file id does not fit the 64 bytes
-  Telegram allows, so the conversion finds the source through the message the question replies to
-  (below). The download serves the check alone, so a document that passes the name costs a
-  `getFile` and the download of the whole file.
+  reply with a 400, which blocks the chat in the outbox. The callback data of a button is
+  `${command}:${format}` (`FormatButtonCommand`, `FormatButtons.parse()`), here
+  `convert:<extension>` or `convert:all`. It names the target alone: a file id does not fit the 64
+  bytes Telegram allows, so the conversion finds the source through the message the question
+  replies to (below). The download serves the check alone, so a document that passes the name
+  costs a `getFile` and the download of the whole file.
 - `ConversionMiddleware` (`middleware/conversion/`) takes a press of a format button, marked or
-  not, and passes any other update on. A marked button (`FormatButtons.findMarkedPress()`, step 9)
-  converts nothing: its press gets `answerCallbackQuery` with a toast,
-  `conversion-middleware-already-sent` or `conversion-middleware-already-failed`
-  ([`cjm.md`](../product/cjm.md), step 4), a late answer taken as in step 1. A press whose callback
-  data starts with `FormatButtons.CALLBACK_DATA_PREFIX` goes in this order:
+  not: callback data that `FormatButtons.parse()` takes. It passes any other update on. A marked
+  button, the command `sent` or `failed` (step 9), converts nothing: its press gets
+  `answerCallbackQuery` with a toast, `conversion-middleware-already-sent` or
+  `conversion-middleware-already-failed` ([`cjm.md`](../product/cjm.md), step 4), a late answer
+  taken as in step 1. A marked button whose format is no extension comes from no button of the bot:
+  it is logged as a `warning` and answered with no toast. A press of the command `convert` goes in
+  this order:
   1. `answerCallbackQuery`, at once, so the client stops its spinner. It names no chat and goes past
      the outbox. Telegram takes the answer for a short while only and refuses a late one with a 400
      "query is too old": a press handed out late by the inbox, behind the conversions of the same

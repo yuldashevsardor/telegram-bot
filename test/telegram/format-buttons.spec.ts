@@ -2,7 +2,8 @@ import { expect } from "chai";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { InlineKeyboardMarkup } from "@grammyjs/types";
 import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
-import { FormatMark } from "app/telegram/format-buttons/format-buttons.types";
+import type { FormatMark } from "app/telegram/format-buttons/format-buttons.types";
+import { FormatButtonCommand } from "app/telegram/format-buttons/format-buttons.types";
 import { replyContext, supportedFormats } from "test/telegram/handler.helper";
 
 // The longest callback data Telegram takes.
@@ -82,9 +83,9 @@ describe("FormatButtons", function () {
         }
 
         it("marks a format sent with a tick and one failed with a cross, leaving the other buttons as they were", async function () {
-            const marks = new Map([
-                [Extension.TTF, FormatMark.Sent],
-                [Extension.SVG, FormatMark.Failed],
+            const marks = new Map<Extension, FormatMark>([
+                [Extension.TTF, FormatButtonCommand.Sent],
+                [Extension.SVG, FormatButtonCommand.Failed],
             ]);
 
             const markedKeyboard = formatButtons.mark(await questionKeyboard(), marks);
@@ -98,17 +99,17 @@ describe("FormatButtons", function () {
         });
 
         it("keeps the marks of earlier presses", async function () {
-            const keyboard = await markedQuestion(new Map([[Extension.TTF, FormatMark.Sent]]));
+            const keyboard = await markedQuestion(new Map([[Extension.TTF, FormatButtonCommand.Sent]]));
 
-            const markedKeyboard = formatButtons.mark(keyboard, new Map([[Extension.EOT, FormatMark.Failed]]));
+            const markedKeyboard = formatButtons.mark(keyboard, new Map([[Extension.EOT, FormatButtonCommand.Failed]]));
 
             expect(looks(markedKeyboard)).to.deep.equal([["✓ TTF", "OTF", "WOFF2"], ["✗ EOT", "SVG"], ["Все форматы"]]);
         });
 
         it("marks a format anew by the outcome of the press", async function () {
-            const keyboard = await markedQuestion(new Map([[Extension.TTF, FormatMark.Failed]]));
+            const keyboard = await markedQuestion(new Map([[Extension.TTF, FormatButtonCommand.Failed]]));
 
-            const markedKeyboard = formatButtons.mark(keyboard, new Map([[Extension.TTF, FormatMark.Sent]]));
+            const markedKeyboard = formatButtons.mark(keyboard, new Map([[Extension.TTF, FormatButtonCommand.Sent]]));
 
             expect(looks(markedKeyboard)).to.deep.equal([["✓ TTF", "OTF", "WOFF2"], ["EOT", "SVG"], ["Все форматы"]]);
             expect(callbackData(markedKeyboard)?.[0]?.[0]).to.equal("sent:ttf");
@@ -116,14 +117,16 @@ describe("FormatButtons", function () {
 
         // Telegram refuses an edit that changes nothing.
         it("gives nothing when no button changes", async function () {
-            const keyboard = await markedQuestion(new Map([[Extension.TTF, FormatMark.Sent]]));
+            const keyboard = await markedQuestion(new Map([[Extension.TTF, FormatButtonCommand.Sent]]));
 
-            expect(formatButtons.mark(keyboard, new Map([[Extension.TTF, FormatMark.Sent]]))).to.equal(undefined);
+            expect(formatButtons.mark(keyboard, new Map([[Extension.TTF, FormatButtonCommand.Sent]]))).to.equal(undefined);
             expect(formatButtons.mark(await questionKeyboard(), new Map())).to.equal(undefined);
         });
 
         it("keeps the data of every marked button within the limit of Telegram", async function () {
-            for (const mark of Object.values(FormatMark)) {
+            const allMarks: FormatMark[] = [FormatButtonCommand.Sent, FormatButtonCommand.Failed];
+
+            for (const mark of allMarks) {
                 const marks = new Map(Object.values(Extension).map((extension) => [extension, mark]));
 
                 for (const sourceExtension of Object.values(Extension)) {
@@ -136,17 +139,25 @@ describe("FormatButtons", function () {
             }
         });
 
-        it("finds the mark and the format of a press of a marked button", function () {
-            expect(formatButtons.findMarkedPress("sent:ttf")).to.deep.equal({ mark: FormatMark.Sent, targetExtension: Extension.TTF });
-            expect(formatButtons.findMarkedPress("failed:woff2")).to.deep.equal({
-                mark: FormatMark.Failed,
-                targetExtension: Extension.WOFF2,
-            });
+        it("finds the command and the format of the data of a format button", function () {
+            expect(formatButtons.parse("convert:all")).to.deep.equal({ command: FormatButtonCommand.Convert, format: "all" });
+            expect(formatButtons.parse("sent:ttf")).to.deep.equal({ command: FormatButtonCommand.Sent, format: "ttf" });
+            expect(formatButtons.parse("failed:woff2")).to.deep.equal({ command: FormatButtonCommand.Failed, format: "woff2" });
         });
 
-        it("finds no marked press in the data of an unmarked button or of a format it does not know", function () {
-            for (const data of ["convert:ttf", "convert:all", "sent:pdf", "sent:", "other:ttf"]) {
-                expect(formatButtons.findMarkedPress(data), data).to.equal(undefined);
+        it("finds no format button in data of another command or of another number of parts", function () {
+            for (const data of ["other:ttf", "convert", "convert:ttf:more", ""]) {
+                expect(formatButtons.parse(data), data).to.equal(undefined);
+            }
+        });
+
+        it("finds the target of a format it knows alone", function () {
+            expect(formatButtons.findTargetExtension({ command: FormatButtonCommand.Sent, format: "otf" })).to.equal(Extension.OTF);
+
+            for (const format of ["all", "pdf", ""]) {
+                expect(formatButtons.findTargetExtension({ command: FormatButtonCommand.Sent, format: format }), format).to.equal(
+                    undefined,
+                );
             }
         });
     });
