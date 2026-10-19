@@ -24,7 +24,7 @@ type Source = { messageId: number; document: Document };
 
 type Conversion = { sourceExtension: Extension; targetExtensions: Extension[]; isAllFormats: boolean };
 
-type Result = { targetExtension: Extension; resultFontPath: string };
+type Result = { targetExtension: Extension; resultFontPath: string; resultSizeBytes: number };
 
 type Outcome = { results: Result[]; failedExtensions: Extension[]; tooLargeExtensions: Extension[] };
 
@@ -39,6 +39,9 @@ export class ConversionMiddleware extends Middleware {
     // inbox behind the conversions of the same chat, or one the inbox retries after a failure.
     private static readonly QUERY_TOO_OLD_DESCRIPTION = "query is too old";
     private static readonly BYTES_PER_MB = 1024 * 1024;
+    // Telegram limits the body of a request, not its files: the multipart headers, the media list and
+    // the reply parameters come on top, a few hundred bytes a file. The margin covers them with room.
+    private static readonly REQUEST_OVERHEAD_MARGIN_BYTES = 64 * 1024;
 
     public constructor(
         @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
@@ -83,7 +86,7 @@ export class ConversionMiddleware extends Middleware {
         await ctx.replyWithChatAction("upload_document");
 
         const sourceFontPath = await this.fileDownloader.download(ctx.api, source.document.file_id, conversion.sourceExtension);
-        const outcome = await this.convert(sourceFontPath, conversion);
+        const outcome = await this.convert(sourceFontPath, sourceFilename, conversion);
         const replyOptions = {
             // The source deleted meanwhile would fail a reply that requires it, and the failed call would
             // block the chat in the outbox.
@@ -160,7 +163,7 @@ export class ConversionMiddleware extends Middleware {
     }
 
     // The downloaded source serves this press alone: the next press downloads it again.
-    private async convert(sourceFontPath: string, conversion: Conversion): Promise<Outcome> {
+    private async convert(sourceFontPath: string, sourceFilename: string, conversion: Conversion): Promise<Outcome> {
         const outcome: Outcome = { results: [], failedExtensions: [], tooLargeExtensions: [] };
 
         try {
@@ -169,12 +172,23 @@ export class ConversionMiddleware extends Middleware {
 
                 if (resultFontPath === undefined) {
                     outcome.failedExtensions.push(targetExtension);
-                } else if (await this.isTooLargeToSend(resultFontPath, targetExtension)) {
+
+                    continue;
+                }
+
+                const result = await this.toResult(targetExtension, resultFontPath);
+
+                if (result.resultSizeBytes > this.maxRequestFilesBytes()) {
+                    this.logger.warning("The result is too large to send.", {
+                        sourceFilename: sourceFilename,
+                        targetExtension: targetExtension,
+                        resultSizeBytes: result.resultSizeBytes,
+                    });
                     // The outbox removes the files it sends, and this one never reaches it.
                     await this.removeFile(resultFontPath);
                     outcome.tooLargeExtensions.push(targetExtension);
                 } else {
-                    outcome.results.push({ targetExtension: targetExtension, resultFontPath: resultFontPath });
+                    outcome.results.push(result);
                 }
             }
         } catch (error) {
@@ -211,24 +225,60 @@ export class ConversionMiddleware extends Middleware {
         }
     }
 
-    // Telegram refuses a file over its limit with a 413, which blocks the chat in the outbox, and in an
-    // album the one file takes the others with it. A font far under the download limit can still give
-    // such a result: an SVG grows several times over a compact source.
-    private async isTooLargeToSend(resultFontPath: string, targetExtension: Extension): Promise<boolean> {
-        const resultSizeBytes = (await fs.stat(resultFontPath)).size;
+    // The file is removed when its size cannot be read: it is in no list the catch of convert() removes.
+    private async toResult(targetExtension: Extension, resultFontPath: string): Promise<Result> {
+        try {
+            const resultSizeBytes = (await fs.stat(resultFontPath)).size;
 
-        if (resultSizeBytes <= this.maxUploadSizeMb * ConversionMiddleware.BYTES_PER_MB) {
-            return false;
+            return { targetExtension: targetExtension, resultFontPath: resultFontPath, resultSizeBytes: resultSizeBytes };
+        } catch (error) {
+            await this.removeFile(resultFontPath);
+
+            throw error;
+        }
+    }
+
+    // Telegram refuses a request whose body is over its limit with a 413, which blocks the chat in the
+    // outbox, and an album goes in one request: one file too many takes the others with it. A font far
+    // under the download limit can still give a result over it: an SVG grows several times over a
+    // compact source.
+    private maxRequestFilesBytes(): number {
+        return this.maxUploadSizeMb * ConversionMiddleware.BYTES_PER_MB - ConversionMiddleware.REQUEST_OVERHEAD_MARGIN_BYTES;
+    }
+
+    // The results go in the order of the buttons, as many to a call as fit in one request.
+    private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyOptions: ReplyOptions): Promise<void> {
+        for (const batch of this.toRequestBatches(results)) {
+            await this.sendBatch(ctx, sourceFilename, batch, replyOptions);
+        }
+    }
+
+    private toRequestBatches(results: Result[]): Result[][] {
+        const batches: Result[][] = [];
+        let batch: Result[] = [];
+        let batchSizeBytes = 0;
+
+        for (const result of results) {
+            if (batch.length > 0 && batchSizeBytes + result.resultSizeBytes > this.maxRequestFilesBytes()) {
+                batches.push(batch);
+                batch = [];
+                batchSizeBytes = 0;
+            }
+
+            batch.push(result);
+            batchSizeBytes += result.resultSizeBytes;
         }
 
-        this.logger.warning("The result is too large to send.", { targetExtension: targetExtension, resultSizeBytes: resultSizeBytes });
+        if (batch.length > 0) {
+            batches.push(batch);
+        }
 
-        return true;
+        return batches;
     }
 
     // A Telegram album holds at least two files, so a single result goes as a plain document.
-    private async sendResults(ctx: Context, sourceFilename: string, results: Result[], replyOptions: ReplyOptions): Promise<void> {
-        const resultFiles = results.map((result) => this.toResultFile(sourceFilename, result));
+    private async sendBatch(ctx: Context, sourceFilename: string, batch: Result[], replyOptions: ReplyOptions): Promise<void> {
+        const resultFiles = batch.map((result) => this.toResultFile(sourceFilename, result));
         const [firstResultFile] = resultFiles;
 
         if (firstResultFile === undefined) {

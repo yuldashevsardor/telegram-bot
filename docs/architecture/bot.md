@@ -269,13 +269,16 @@ session is the album `NotAFileMiddleware` answered last (below).
      `FontConvertorError`, a conversion failing on our side, is logged as an `error`, and the other
      targets still go. Any other error is thrown on to the inbox, and the results already made are
      removed: the inbox handles the update anew.
-  6. A result over `BOT_MAX_UPLOAD_SIZE` is removed, logged as a `warning` and not sent: Telegram
-     refuses such a file with a 413, an `Unexpected` failure that blocks the chat in the outbox, and
-     in an album it takes the other results with it.
+  6. Telegram limits the body of a request, `BOT_MAX_UPLOAD_SIZE`, and refuses one over it with a
+     413, an `Unexpected` failure that blocks the chat in the outbox
+     ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"). A result over the
+     limit less a margin for the multipart, `REQUEST_OVERHEAD_MARGIN_BYTES`, is removed, logged as a
+     `warning` and not sent.
   7. Each result is a `PathFile` named after the source with the extension of its target
-     (`MyFont.woff` → `MyFont.ttf`); the domain names the file at random. Two results and more go
-     with `sendMediaGroup` as one album of documents, a single one with `sendDocument`, in reply to
-     the source and without a caption. The outbox removes the files once the call is sent
+     (`MyFont.woff` → `MyFont.ttf`); the domain names the file at random. The results go in the
+     order of the buttons, as many to a call as fit under the same limit: two and more with
+     `sendMediaGroup` as an album of documents, a single one with `sendDocument`, in reply to the
+     source and without a caption. The outbox removes the files once the call is sent
      ([`outbox.md`](./outbox.md), "Sending").
   8. The failed targets, if any, are named in one reply after the results: for a single format
      `conversion-middleware-failed`, for `convert:all` `conversion-middleware-failed-formats`,

@@ -28,8 +28,6 @@ const SOURCE_MESSAGE_ID = 42;
 const QUESTION_MESSAGE_ID = 43;
 const MAX_UPLOAD_SIZE_MB = 50;
 const BYTES_PER_MB = 1024 * 1024;
-// Below the SVG of the fixture, 471 KB, and above its other results, at most 160 KB.
-const MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB = 0.3;
 
 // A message as a reply carries it: without a reply of its own.
 type ReplyMessage = NonNullable<Message["reply_to_message"]>;
@@ -304,17 +302,20 @@ describe("ConversionMiddleware", function () {
         });
     });
 
-    // Telegram refuses a file over its upload limit, and in an album the whole album with it.
-    describe("a result too large to send", function () {
-        const tooLargeSvg = "Не получилось отправить SVG: больше 0,3 МБ — Telegram не даёт ботам отправлять такие файлы.";
+    // Telegram refuses a request whose body is over its limit, and an album goes in one request.
+    describe("results against the upload limit", function () {
+        const maxUploadSizeMb = 1;
+        // The files of one request: the limit less the margin the middleware keeps for the multipart.
+        const maxRequestFilesBytes = BYTES_PER_MB - 64 * 1024;
+        const tooLargeSvg = "Не получилось отправить SVG: больше 1 МБ — Telegram не даёт ботам отправлять такие файлы.";
 
-        // Records the results the convertor makes, so that the spec sees the one never sent.
-        function recordingConvertor(resultFontPaths: string[]): FontConvertor {
-            const convertor = realConvertor();
-
+        // Writes a result of the size given for its target, so that the spec knows each size before the run.
+        function sizedConvertor(resultSizesBytes: Partial<Record<Extension, number>>, resultFontPaths: string[] = []): FontConvertor {
             return {
                 convert: async (params: ConvertParams): Promise<string> => {
-                    const resultFontPath = await convertor.convert(params);
+                    const resultFontPath = path.join(tempDir, `result-${resultFontPaths.length}.${params.extension}`);
+
+                    await fs.writeFile(resultFontPath, Buffer.alloc(resultSizesBytes[params.extension] ?? 1));
                     resultFontPaths.push(resultFontPath);
 
                     return resultFontPath;
@@ -322,10 +323,22 @@ describe("ConversionMiddleware", function () {
             } as unknown as FontConvertor;
         }
 
-        it("tells the person instead of sending it, removes it and logs it", async function () {
+        function filenamesOf(call: HandlerCall): unknown[] {
+            if (call.method === "replyWithDocument") {
+                return [(call.args[0] as PathFile).filename];
+            }
+
+            return (call.args[0] as InputMediaDocument<PathFile>[]).map((media) => (media.media as PathFile).filename);
+        }
+
+        function sendCalls(calls: HandlerCall[]): HandlerCall[] {
+            return calls.filter((call) => call.method === "replyWithDocument" || call.method === "replyWithMediaGroup");
+        }
+
+        it("tells the person instead of sending a result over the limit, removes it and logs it", async function () {
             const resultFontPaths: string[] = [];
             const { calls } = await run(
-                middlewareWith(recordingConvertor(resultFontPaths), MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB),
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 }, resultFontPaths), maxUploadSizeMb),
                 press("convert:svg", question(sourceMessage("MyFont.woff"))),
             );
 
@@ -334,15 +347,38 @@ describe("ConversionMiddleware", function () {
             expect(calls.at(-1)?.args[1]).to.deep.equal({
                 reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true },
             });
-            expect(resultFontPaths).to.have.lengthOf(1);
             expect(await exists(resultFontPaths[0] ?? "")).to.equal(false);
-            expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The result is too large to send."]);
-            expect(logger.warnings[0]?.payload).to.include({ targetExtension: Extension.SVG });
+            expect(logger.warnings).to.deep.equal([
+                {
+                    message: "The result is too large to send.",
+                    payload: { sourceFilename: "MyFont.woff", targetExtension: Extension.SVG, resultSizeBytes: maxRequestFilesBytes + 1 },
+                },
+            ]);
         });
 
-        it("sends the other formats as an album and names the one too large after it", async function () {
+        it("sends a result of exactly the limit", async function () {
             const { calls } = await run(
-                middlewareWith(convertorFailingFor([Extension.OTF]), MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB),
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes }), maxUploadSizeMb),
+                press("convert:svg", question(sourceMessage("MyFont.woff"))),
+            );
+
+            expect(documentOf(calls).filename).to.equal("MyFont.svg");
+            expect(replyTexts(calls)).to.deep.equal([]);
+        });
+
+        it("sends the other formats as an album and names the one too large after the failed ones", async function () {
+            const convertor = sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 });
+            const failingOtf = {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    if (params.extension === Extension.OTF) {
+                        throw new FontConvertorError("The engine failed.");
+                    }
+
+                    return convertor.convert(params);
+                },
+            } as unknown as FontConvertor;
+            const { calls } = await run(
+                middlewareWith(failingOtf, maxUploadSizeMb),
                 press("convert:all", question(sourceMessage("MyFont.woff"))),
             );
 
@@ -357,36 +393,92 @@ describe("ConversionMiddleware", function () {
             expect(replyTexts(calls)).to.deep.equal(["Не получилось: OTF.", tooLargeSvg]);
         });
 
+        it("sends results that add up past the limit in several calls, in the order of the buttons", async function () {
+            const thirdOfLimitBytes = Math.floor(maxRequestFilesBytes / 3);
+            const { calls } = await run(
+                middlewareWith(
+                    sizedConvertor({
+                        [Extension.TTF]: thirdOfLimitBytes,
+                        [Extension.OTF]: thirdOfLimitBytes,
+                        [Extension.WOFF2]: thirdOfLimitBytes,
+                        [Extension.EOT]: maxRequestFilesBytes - thirdOfLimitBytes,
+                        [Extension.SVG]: thirdOfLimitBytes,
+                    }),
+                    maxUploadSizeMb,
+                ),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+            const sent = sendCalls(calls);
+
+            expect(sent.map((call) => call.method)).to.deep.equal(["replyWithMediaGroup", "replyWithMediaGroup"]);
+            expect(sent.map((call) => filenamesOf(call))).to.deep.equal([
+                ["MyFont.ttf", "MyFont.otf", "MyFont.woff2"],
+                ["MyFont.eot", "MyFont.svg"],
+            ]);
+            expect(sent.map((call) => call.args[1])).to.deep.equal([
+                { reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true } },
+                { reply_parameters: { message_id: SOURCE_MESSAGE_ID, allow_sending_without_reply: true } },
+            ]);
+            expect(replyTexts(calls)).to.deep.equal([]);
+        });
+
+        it("sends a result left alone by the limit as a plain document", async function () {
+            const halfOfLimitBytes = Math.floor(maxRequestFilesBytes / 2);
+            const { calls } = await run(
+                middlewareWith(
+                    sizedConvertor({
+                        [Extension.TTF]: halfOfLimitBytes,
+                        [Extension.OTF]: halfOfLimitBytes,
+                        [Extension.WOFF2]: halfOfLimitBytes + 1,
+                        [Extension.EOT]: halfOfLimitBytes,
+                        [Extension.SVG]: halfOfLimitBytes,
+                    }),
+                    maxUploadSizeMb,
+                ),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            );
+            const sent = sendCalls(calls);
+
+            expect(sent.map((call) => call.method)).to.deep.equal(["replyWithMediaGroup", "replyWithDocument", "replyWithMediaGroup"]);
+            expect(sent.map((call) => filenamesOf(call))).to.deep.equal([
+                ["MyFont.ttf", "MyFont.otf"],
+                ["MyFont.woff2"],
+                ["MyFont.eot", "MyFont.svg"],
+            ]);
+        });
+
         it("tells it in the locale of the update", async function () {
             const { calls } = await run(
-                middlewareWith(realConvertor(), MAX_UPLOAD_SIZE_UNDER_FIXTURE_SVG_MB),
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 }), maxUploadSizeMb),
                 press("convert:svg", question(sourceMessage("MyFont.woff"))),
                 { locale: "en" },
             );
 
-            expect(replyTexts(calls)).to.deep.equal(["Could not send SVG: over 0.3 MB. Telegram does not let bots send such files."]);
+            expect(replyTexts(calls)).to.deep.equal(["Could not send SVG: over 1 MB. Telegram does not let bots send such files."]);
         });
 
-        it("sends a result of exactly the limit", async function () {
-            const fixtureSvgPath = path.join(FONTS_DIR, "test-font.svg");
-            // Hands out a copy of the SVG fixture, whose size is known before the run.
-            const copyingConvertor = {
-                convert: async (): Promise<string> => {
-                    const resultFontPath = path.join(tempDir, "result.svg");
-                    await fs.copyFile(fixtureSvgPath, resultFontPath);
+        // The convertor wrote the file, so a size that cannot be read leaves it in no list to remove.
+        it("removes a result whose size cannot be read and lets the error through", async function () {
+            const resultFontPaths: string[] = [];
+            const convertor = sizedConvertor({}, resultFontPaths);
+            const missingResultPath = path.join(tempDir, "missing.svg");
+            const vanishingConvertor = {
+                convert: async (params: ConvertParams): Promise<string> => {
+                    if (params.extension === Extension.SVG) {
+                        return missingResultPath;
+                    }
 
-                    return resultFontPath;
+                    return convertor.convert(params);
                 },
             } as unknown as FontConvertor;
-            const fixtureSvgSizeBytes = (await fs.stat(fixtureSvgPath)).size;
 
-            const { calls } = await run(
-                middlewareWith(copyingConvertor, fixtureSvgSizeBytes / BYTES_PER_MB),
-                press("convert:svg", question(sourceMessage("MyFont.woff"))),
-            );
+            const caught = await run(
+                middlewareWith(vanishingConvertor),
+                press("convert:all", question(sourceMessage("MyFont.woff"))),
+            ).catch((rejection: unknown) => rejection);
 
-            expect(documentOf(calls).filename).to.equal("MyFont.svg");
-            expect(replyTexts(calls)).to.deep.equal([]);
+            expect((caught as NodeJS.ErrnoException).code).to.equal("ENOENT");
+            await Promise.all(resultFontPaths.map(async (resultFontPath) => expect(await exists(resultFontPath)).to.equal(false)));
         });
     });
 

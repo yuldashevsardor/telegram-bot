@@ -2,11 +2,12 @@
 
 The outbox and the inbox run against the real Telegram: one run of `/bulk_messages` on a development
 bot, on 2026-10-11, watched by its logs, and a shorter rerun of its 429s on 2026-10-16 (see "The
-rerun of a 429"), then albums against the window of a private chat on 2026-10-19, sent past the bot
-(see "Albums and the window"). The load tests of the stores
-([`outbox-load-test.md`](./outbox-load-test.md), [`inbox-load-test.md`](./inbox-load-test.md))
-measure the SQL on large tables, and the end-to-end specs replace Telegram with a fake server
-([`outbox.md`](./outbox.md), "The end-to-end spec"); this run measures what neither does: the limits
+rerun of a 429"), then albums against the window of a private chat and the upload limit on
+2026-10-19, sent past the bot (see "Albums and the window", "The upload limit"). The load tests
+of the stores ([`outbox-load-test.md`](./outbox-load-test.md),
+[`inbox-load-test.md`](./inbox-load-test.md)) measure the SQL on large tables, and the end-to-end
+specs replace Telegram with a fake server ([`outbox.md`](./outbox.md), "The end-to-end spec"); this
+run measures what neither does: the limits
 of Telegram itself, how the limits and the pause of the outbox meet them, and a reply of the bot
 while a bulk send is queued. The times are UTC.
 
@@ -122,6 +123,24 @@ towards the window of a private chat, or the album as one message.
   either. So the count of some 100 messages holds for the long texts of the runs, and what else
   Telegram counts, or does not, is not measured: an album of photos, a document sent alone, a reply
   of the bot.
+
+## The upload limit
+
+On 2026-10-19 the same script sent files of random bytes into the same chat, one call at a time,
+and deleted what went through.
+
+| call | body of the request, bytes | answer |
+|---|---|---|
+| `sendDocument`, a file of 52 428 800 bytes, 50 MiB | 52 429 091 | 413 "Request Entity Too Large" |
+| `sendDocument`, files of 50 000 000 and 50 000 001 bytes | 50 000 290 | 200, each |
+| `sendMediaGroup`, two files of 30 000 000 bytes | 60 000 613 | 413 |
+| `sendDocument`, a file sized for the body | 52 428 800 | 200 |
+| `sendDocument`, a file sized for the body | 52 428 801 | 413 |
+
+The cloud Bot API limits the body of a request to 50 MiB, not each file: the file of 50 MiB failed
+by its multipart headers, some 300 bytes, and an album of files under the limit failed by their sum.
+The 413 comes as an answer of the Bot API, `ok: false` with `error_code` 413, so grammY throws a
+`GrammyError`.
 
 ## A reply behind the bulk messages
 

@@ -18,7 +18,7 @@ bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOF
 `{contact}` is how to reach the author of the bot. It is a configuration value, `BOT_AUTHOR_CONTACT`
 (`.env.dist`), not a text of the `.ftl`: the contact changes without a change of the texts.
 `{maxDownloadSizeMb}` is the size limit of a file the same way, `BOT_MAX_DOWNLOAD_SIZE`, 20 MB by
-default (see "5. Errors"), and `{maxUploadSizeMb}` that of a result the bot sends,
+default (see "5. Errors"), and `{maxUploadSizeMb}` that of the files the bot sends in one message,
 `BOT_MAX_UPLOAD_SIZE`, 50 MB by default.
 
 The journey covers private chats only: `IsPrivateChatFilter` drops updates of every other chat
@@ -93,9 +93,10 @@ message after it names the failed formats. A Telegram album holds at least two f
 result comes as a plain document, and when every conversion fails, the message naming the failed
 formats is the whole answer.
 
-A result over {maxUploadSizeMb} MB is not sent: the album carries the rest, and a message after the
-results names it (see "5. Errors"). A source under the download limit can give one: an SVG grows
-several times over a compact source.
+A result over {maxUploadSizeMb} MB is not sent: the other results still go, and a message after
+them names it (see "5. Errors"). A source under the download limit can give one: an SVG grows
+several times over a compact source. Results that add up past {maxUploadSizeMb} MB come in several
+albums, in the order of the buttons, a result left alone as a plain document.
 
 ## 4. Again
 
