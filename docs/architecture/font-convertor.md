@@ -13,7 +13,8 @@ FontConvertor.convert({ originPath, extension })
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
     source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
     argument (SvgFontPreparer, "Reading SVG"); the script flattens a CID-keyed font for every
-    target but OTF ("CID-keyed fonts")
+    target but OTF ("CID-keyed fonts") and fails for a target that writes a name-keyed CFF when the
+    font has more glyph names than that holds ("Glyph names in CFF")
   → the validator of the target format accepts the result (FontValidatorResolver), otherwise
     FontConvertorError ("Checking the result")
 ```
@@ -142,16 +143,44 @@ the check `Alphabetic` has the `BlueValues` `[-13, 0, 544, 557, 735, 747]`, `Pro
 flattened result `[-20, 0, 543, 543, 733, 733]`. Hinting is not among the facts the check compares,
 so it does not see this.
 
-Flattening holds up to the names a name-keyed CFF can store: its String INDEX, which holds every
-glyph name, counts its strings in 16 bits. The region subset `NotoSansSC-Regular.otf` of noto-cjk,
-31 036 glyphs, converts whole into every format. The whole Noto Sans CJK SC, 65 535 glyphs, does
-not. Into WOFF fontforge prints "Attempt to output 65538 into a 16-bit field. It will be truncated
-and the file may not be useful", exits with 0 and writes a CFF whose String INDEX counts 2 strings,
-so fontTools cannot read its Top DICT. The WOFF validator accepts the result: neither it nor the
-sfnt validator reads what `CFF ` holds (the class comment of `SfntFontValidator`), so the bot sends
-a broken file ([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)). Into TTF and
-EOT the font is past the glyph limit of sfnt ("Checking the result"), and into WOFF2 the engine
-fails. The SVG, 45 448 371 bytes, comes through.
+Flattening names every glyph, and a name-keyed CFF holds only so many names ("Glyph names in
+CFF"). The region subset `NotoSansSC-Regular.otf` of noto-cjk, 31 036 glyphs, converts whole into
+every format. The whole Noto Sans CJK SC, 65 535 glyphs, converts whole into OTF and SVG; into WOFF
+and WOFF2 the script refuses its 65 534 flattened glyph names, and into TTF and EOT it is past the
+glyph limit of sfnt ("Checking the result").
+
+## Glyph names in CFF
+
+A name-keyed CFF, which holds the outlines of an OTF and the cubic outlines of a WOFF or a WOFF2,
+keeps the name of each glyph as a string and refers to it by a string ID of 16 bits. The IDs below
+391 are the standard strings of CFF, so a font has 65 145 strings of its own at most. Besides the
+glyph names fontforge 20230101 writes five strings of the Top DICT, `version`, `Notice`,
+`FullName`, `FamilyName` and `Weight`, each apart even when two are equal or one is empty, unless it
+is a standard string: measured with fontTools 4.60.2 on fonts of `glyphN` names that fontforge
+wrote into OTF.
+
+Past the last ID fontforge writes the font with a zero exit code and wraps the IDs onto the
+standard strings: a font of 65 149 such glyphs comes back with glyph 65 146 named `.notdef` and its
+last glyph named `quotedbl`, and the writing prints no error. Past 65 535 strings the count of the
+String INDEX overflows as well: fontforge prints "Attempt to output 65538 into a 16-bit field. It
+will be truncated and the file may not be useful", and fontTools cannot read the Top DICT of the
+result. The whole Noto Sans CJK SC flattened into WOFF came out so, and the WOFF validator accepted
+it: no validator reads what `CFF ` holds (the class comment of `SfntFontValidator`)
+([#1031](https://github.com/yuldashevsardor/telegram-bot/issues/1031)).
+
+So the scripts of the targets that write a name-keyed CFF count the glyph names before `generate()`
+(`FontForge.refuseGlyphNamesPastCffScript`) and raise past 65 140, the 65 145 strings less the five
+of the Top DICT. The engine exits with an error, and the conversion fails as on any failure of the
+engine. `convertToOtfScript` counts unless the font is CID-keyed: a CID-keyed CFF refers to its
+glyphs by CID, and an OTF is written CID-keyed ("CID-keyed fonts"). `convertToWoffScript`, which
+WOFF and WOFF2 run, counts after the flattening and only when the outlines are cubic: fontforge
+writes quadratic ones into `glyf` and the names into `post`. TTF and SVG are not counted.
+
+The count takes every glyph but `.notdef` and does not tell a standard name, such as `A` or
+`space`, from one of the font's own, nor a standard string of the Top DICT, such as the version
+`001.000`. A font of more than 65 140 glyphs besides `.notdef` that would fit thanks to standard
+names is refused all the same. The owner accepted this: an exact count would carry the 391
+standard strings in the script, and a font that close to the limit is not in the corpus.
 
 ## Checking the result
 
@@ -279,8 +308,8 @@ unencoded on the way back, as SVG 1.1 reads it.
 
 ## Writing SVG
 
-A pair into SVG runs `FontForge.convertToSvgScript` instead of `convertFlattenedScript`. fontforge
-20230101 writes a glyph into one `<glyph>` element and leaves its other code points out
+A pair into SVG runs `FontForge.convertToSvgScript` instead of the script of an sfnt target.
+fontforge 20230101 writes a glyph into one `<glyph>` element and leaves its other code points out
 (`svg_sfdump` of its `svg.c`):
 
 - a glyph with a ligature of a `liga` or `rlig` lookup, whose components all have code points,

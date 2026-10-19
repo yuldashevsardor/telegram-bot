@@ -14,7 +14,7 @@ type FontFactsJson = Omit<FontFacts, "advanceWidths"> & { advanceWidths: Record<
  * no separate python3.
  */
 export class FontFactsReader {
-    // The path is read from sys.argv, as in FontForge.convertFlattenedScript. U+0000 is left out of the
+    // The path is read from sys.argv, as in FontForge.convertToTtfScript. U+0000 is left out of the
     // encoded code points: it is the NULL control code, which no text draws, and the engine keeps it
     // in neither direction. Writing an sfnt, fontforge drops the cmap entry of U+0000 that points at
     // glyph 0, which an unmapped code point gets anyway. An SVG is read as FontForge.convert() reads
