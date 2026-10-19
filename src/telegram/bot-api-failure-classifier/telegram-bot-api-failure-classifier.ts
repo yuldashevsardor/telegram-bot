@@ -16,6 +16,14 @@ const UNREACHABLE_CHAT_DESCRIPTIONS: ReadonlySet<string> = new Set([
     "Bad Request: user not found",
 ]);
 
+// The descriptions of a 400 about an edit that cannot change its message: one that changes nothing,
+// as a press handled again after its edit went out makes, and one of a message the person deleted
+// (docs/architecture/outbox.md, "Error classes").
+const UNEDITABLE_MESSAGE_DESCRIPTIONS: ReadonlySet<string> = new Set([
+    "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message",
+    "Bad Request: message to edit not found",
+]);
+
 const MISSING_FILE_CODE = "ENOENT";
 const FILE_OPEN_SYSCALL = "open";
 
@@ -62,6 +70,10 @@ export class TelegramBotApiFailureClassifier {
         }
 
         if (error.error_code === httpStatus.HTTP_STATUS_BAD_REQUEST && this.isUnreachableChat(error)) {
+            return { kind: TelegramBotApiFailureKind.Undeliverable };
+        }
+
+        if (error.error_code === httpStatus.HTTP_STATUS_BAD_REQUEST && UNEDITABLE_MESSAGE_DESCRIPTIONS.has(error.description)) {
             return { kind: TelegramBotApiFailureKind.Undeliverable };
         }
 

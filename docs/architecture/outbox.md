@@ -876,6 +876,11 @@ where they are, and why one failure is not classified at all:
   chat. A description Telegram rewords falls to `Unexpected` and blocks the chat: the safe side. A
   group upgraded to a supergroup takes no messages under its old id, and the message is not resent
   to the new one.
+- Two exact descriptions of a 400 are about an edit, not about the chat: "message is not modified"
+  and "message to edit not found" (`UNEDITABLE_MESSAGE_DESCRIPTIONS`). A retry changes neither, and
+  the marks of the format buttons run into both in ordinary use: a double tap and a question the
+  person deleted ([`bot.md`](./bot.md), "Commands", `ConversionMiddleware`). As `Unexpected` they
+  would block the chat of a person who only tapped twice, so they are `Undeliverable`.
 - A 413 is `TooLarge`: the body of the request is over the limit of the Bot API
   ([`real-bot-load-test.md`](./real-bot-load-test.md), "The upload limit"), and a retry of the same
   call gets the same 413. It fails the message without blocking the chat: the chat is reachable,

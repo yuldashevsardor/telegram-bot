@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { Api, Composer, Context as GrammyContext, GrammyError } from "grammy";
-import type { InputMediaDocument, MaybeInaccessibleMessage, Message, Update, UserFromGetMe } from "@grammyjs/types";
+import type { InlineKeyboardMarkup, InputMediaDocument, MaybeInaccessibleMessage, Message, Update, UserFromGetMe } from "@grammyjs/types";
 import type { ConvertParams } from "app/font-convertor/font-convertor.types";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontConvertor } from "app/font-convertor/font-convertor";
@@ -12,6 +12,8 @@ import { FontConvertorError } from "app/font-convertor/font-convertor.errors";
 import { ConversionMiddleware } from "app/telegram/middleware/conversion/conversion.middleware";
 import type { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
 import { PathFile } from "app/telegram/path-file/path-file";
+import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
+import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { Context } from "app/telegram/bot/bot.types";
 import { createFluent } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
@@ -19,6 +21,7 @@ import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import { supportedFormats } from "test/telegram/handler.helper";
 import { realConvertorFactory, realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 const FONTS_DIR = path.join(process.cwd(), "test", "fixtures", "fonts");
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
@@ -67,8 +70,9 @@ function sourceMessage(fileName: string): ReplyMessage {
     } as ReplyMessage;
 }
 
-// The question of the intake in reply to the source, or standing alone when the source is gone.
-function question(source: ReplyMessage | undefined): Message {
+// The question of the intake in reply to the source, or standing alone when the source is gone, with
+// the buttons as they were at the press.
+function question(source: ReplyMessage | undefined, keyboard?: InlineKeyboardMarkup): Message {
     return {
         message_id: QUESTION_MESSAGE_ID,
         date: 2,
@@ -76,7 +80,26 @@ function question(source: ReplyMessage | undefined): Message {
         from: ME,
         text: "Это WOFF. Во что сконвертировать?",
         reply_to_message: source,
+        reply_markup: keyboard,
     } as Message;
+}
+
+// The buttons the intake puts under the question of a WOFF source (docs/product/cjm.md, step 2).
+function woffButtons(): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [
+            [
+                { text: "TTF", callback_data: "convert:ttf" },
+                { text: "OTF", callback_data: "convert:otf" },
+                { text: "WOFF2", callback_data: "convert:woff2" },
+            ],
+            [
+                { text: "EOT", callback_data: "convert:eot" },
+                { text: "SVG", callback_data: "convert:svg" },
+            ],
+            [{ text: "Все форматы", callback_data: "convert:all" }],
+        ],
+    };
 }
 
 function press(data: string, message: MaybeInaccessibleMessage): Update {
@@ -106,6 +129,8 @@ describe("ConversionMiddleware", function () {
             supportedFormats,
             downloader as unknown as TelegramFileDownloader,
             fontConvertor,
+            new FormatButtons(supportedFormats),
+            new TelegramBotApiFailureClassifier(),
             logger,
             maxUploadSizeMb,
         );
@@ -123,11 +148,12 @@ describe("ConversionMiddleware", function () {
 
     // Runs the update through the middleware the way Bot attaches it, with the calls of the context
     // recorded instead of sent. answerPress stands for the answer of Telegram to answerCallbackQuery,
-    // mediaGroupError for a failure of the first album the middleware sends.
+    // mediaGroupError for a failure of the first album the middleware sends, editError for a failure
+    // of the edit of the buttons.
     async function run(
         middleware: ConversionMiddleware,
         update: Update,
-        options: { locale?: Locale; answerPress?: () => Promise<true>; mediaGroupError?: Error } = {},
+        options: { locale?: Locale; answerPress?: () => Promise<true>; mediaGroupError?: Error; editError?: Error } = {},
     ): Promise<PressRun> {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const ctx = new GrammyContext(update, new Api("test-token"), ME) as Context;
@@ -158,6 +184,15 @@ describe("ConversionMiddleware", function () {
 
             return {};
         }) as Context["replyWithMediaGroup"];
+        ctx.editMessageReplyMarkup = (async (...args: unknown[]) => {
+            calls.push({ method: "editMessageReplyMarkup", args: args });
+
+            if (options.editError !== undefined) {
+                throw options.editError;
+            }
+
+            return true;
+        }) as Context["editMessageReplyMarkup"];
 
         const composer = new Composer<Context>();
         middleware.setup(composer);
@@ -201,6 +236,14 @@ describe("ConversionMiddleware", function () {
         } as unknown as FontConvertor;
     }
 
+    // The texts of the buttons the press edited the question into, or undefined when it edited nothing.
+    function markedLooks(calls: HandlerCall[]): unknown {
+        const editCall = calls.find((call) => call.method === "editMessageReplyMarkup");
+        const editOptions = editCall?.args[0] as { reply_markup: InlineKeyboardMarkup } | undefined;
+
+        return editOptions?.reply_markup.inline_keyboard.map((row) => row.map((button) => button.text));
+    }
+
     function replyTexts(calls: HandlerCall[]): unknown[] {
         return calls.filter((call) => call.method === "reply").map((call) => call.args[0]);
     }
@@ -241,8 +284,9 @@ describe("ConversionMiddleware", function () {
         expect(documentOf(calls).filename).to.equal("My.Font.ttf");
     });
 
-    // The buttons stay under the question (docs/product/cjm.md, step 4).
-    it("converts again on a second press of the same button, downloading the source anew", async function () {
+    // The second tap of a quick pair comes with the buttons from before the marks of the first one
+    // (docs/product/cjm.md, step 4).
+    it("converts again on a second press of the same unmarked button, downloading the source anew", async function () {
         const middleware = realMiddleware();
         const update = press("convert:ttf", question(sourceMessage("MyFont.woff")));
 
@@ -367,6 +411,15 @@ describe("ConversionMiddleware", function () {
                     payload: { sourceFilename: "MyFont.woff", targetExtension: Extension.SVG, resultSizeBytes: maxRequestFilesBytes + 1 },
                 },
             ]);
+        });
+
+        it("marks the format whose result is over the limit with a cross", async function () {
+            const { calls } = await run(
+                middlewareWith(sizedConvertor({ [Extension.SVG]: maxRequestFilesBytes + 1 }), maxUploadSizeMb),
+                press("convert:svg", question(sourceMessage("MyFont.woff"), woffButtons())),
+            );
+
+            expect(markedLooks(calls)).to.deep.equal([["TTF", "OTF", "WOFF2"], ["EOT", "✗ SVG"], ["Все форматы"]]);
         });
 
         it("sends a result of exactly the limit", async function () {
@@ -703,6 +756,122 @@ describe("ConversionMiddleware", function () {
             expect(resultFontPaths).to.have.lengthOf(2);
             await Promise.all(resultFontPaths.map(async (resultFontPath) => expect(await exists(resultFontPath)).to.equal(false)));
             expect(await exists(downloader.downloadedPaths[0] ?? "")).to.equal(false);
+        });
+    });
+
+    // docs/product/cjm.md, step 4.
+    describe("the marks of the buttons", function () {
+        const notModified = telegramError(
+            400,
+            "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message",
+        );
+
+        it("marks the format sent with a tick, after the document", async function () {
+            const { calls } = await run(realMiddleware(), press("convert:ttf", question(sourceMessage("MyFont.woff"), woffButtons())));
+
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "replyWithDocument",
+                "editMessageReplyMarkup",
+            ]);
+            expect(markedLooks(calls)).to.deep.equal([["✓ TTF", "OTF", "WOFF2"], ["EOT", "SVG"], ["Все форматы"]]);
+        });
+
+        it("marks a format that failed on our side with a cross, after the message about it", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.OTF])),
+                press("convert:otf", question(sourceMessage("MyFont.woff"), woffButtons())),
+            );
+
+            expect(calls.map((call) => call.method)).to.deep.equal([
+                "answerCallbackQuery",
+                "replyWithChatAction",
+                "reply",
+                "editMessageReplyMarkup",
+            ]);
+            expect(markedLooks(calls)).to.deep.equal([["TTF", "✗ OTF", "WOFF2"], ["EOT", "SVG"], ["Все форматы"]]);
+        });
+
+        it("marks every format by its own outcome after all formats", async function () {
+            const { calls } = await run(
+                middlewareWith(convertorFailingFor([Extension.OTF, Extension.SVG])),
+                press("convert:all", question(sourceMessage("MyFont.woff"), woffButtons())),
+            );
+
+            expect(markedLooks(calls)).to.deep.equal([["✓ TTF", "✗ OTF", "✓ WOFF2"], ["✓ EOT", "✗ SVG"], ["Все форматы"]]);
+        });
+
+        // Telegram refuses an edit that changes nothing with a 400.
+        it("edits nothing when the buttons carry the marks already", async function () {
+            const failingConvertor = convertorFailingFor([Extension.OTF, Extension.SVG]);
+            const first = await run(
+                middlewareWith(failingConvertor),
+                press("convert:all", question(sourceMessage("MyFont.woff"), woffButtons())),
+            );
+            const editOptions = first.calls.at(-1)?.args[0] as { reply_markup: InlineKeyboardMarkup };
+
+            const second = await run(
+                middlewareWith(failingConvertor),
+                press("convert:all", question(sourceMessage("MyFont.woff"), editOptions.reply_markup)),
+            );
+
+            expect(second.calls.map((call) => call.method)).to.not.include("editMessageReplyMarkup");
+        });
+
+        // The second tap of a quick pair, or a press the inbox handles again after its edit went out.
+        it("goes on when Telegram refuses the edit as changing nothing, and logs it", async function () {
+            const { calls } = await run(realMiddleware(), press("convert:ttf", question(sourceMessage("MyFont.woff"), woffButtons())), {
+                editError: notModified,
+            });
+
+            expect(documentOf(calls).filename).to.equal("MyFont.ttf");
+            expect(logger.infos).to.deep.equal([{ message: "The buttons were not marked.", payload: { cause: notModified } }]);
+        });
+
+        it("goes on when the question was deleted during the conversion", async function () {
+            const notFound = telegramError(400, "Bad Request: message to edit not found");
+
+            const { calls } = await run(realMiddleware(), press("convert:ttf", question(sourceMessage("MyFont.woff"), woffButtons())), {
+                editError: notFound,
+            });
+
+            expect(documentOf(calls).filename).to.equal("MyFont.ttf");
+            expect(logger.infos.map((info) => info.message)).to.deep.equal(["The buttons were not marked."]);
+        });
+
+        // The inbox picks the outcome of the update by the error (docs/architecture/inbox.md, "Failures").
+        it("lets any other failure of the edit through", async function () {
+            const malformed = telegramError(400, "Bad Request: can't parse reply keyboard markup JSON object");
+
+            const caught = await run(realMiddleware(), press("convert:ttf", question(sourceMessage("MyFont.woff"), woffButtons())), {
+                editError: malformed,
+            }).catch((rejection: unknown) => rejection);
+
+            expect(caught).to.equal(malformed);
+        });
+
+        describe("a press of a marked button", function () {
+            for (const { data, toast } of [
+                { data: "sent:ttf", toast: "TTF уже отправлен — он выше в чате." },
+                { data: "failed:svg", toast: "SVG из этого файла не получается — повтор даст то же самое." },
+            ]) {
+                it(`answers "${data}" with a toast and converts nothing`, async function () {
+                    const { calls, isPassedOn } = await run(realMiddleware(), press(data, question(sourceMessage("MyFont.woff"))));
+
+                    expect(calls).to.deep.equal([{ method: "answerCallbackQuery", args: [toast] }]);
+                    expect(downloader.downloadedPaths).to.deep.equal([]);
+                    expect(isPassedOn).to.equal(false);
+                });
+            }
+
+            it("answers in the locale of the update", async function () {
+                const sent = await run(realMiddleware(), press("sent:ttf", question(sourceMessage("MyFont.woff"))), { locale: "en" });
+                const failed = await run(realMiddleware(), press("failed:svg", question(sourceMessage("MyFont.woff"))), { locale: "en" });
+
+                expect(sent.calls[0]?.args).to.deep.equal(["TTF has already been sent: it is above in the chat."]);
+                expect(failed.calls[0]?.args).to.deep.equal(["SVG cannot be made from this file: trying again gives the same."]);
+            });
         });
     });
 

@@ -1,9 +1,12 @@
 import { inject, injectable } from "inversify";
 import { InlineKeyboard } from "grammy";
+import type { InlineKeyboardButton, InlineKeyboardMarkup } from "@grammyjs/types";
 import { Tokens } from "app/shared/tokens";
-import type { Extension } from "app/font-convertor/font-convertor.types";
+import { Extension } from "app/font-convertor/font-convertor.types";
 import type { Context } from "app/telegram/bot/bot.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
+import type { MarkedPress } from "app/telegram/format-buttons/format-buttons.types";
+import { FormatMark } from "app/telegram/format-buttons/format-buttons.types";
 
 // The buttons under the question about a file (docs/product/cjm.md, step 2): the target formats.
 @injectable()
@@ -14,6 +17,18 @@ export class FormatButtons {
     public static readonly ALL_FORMATS = "all";
 
     private static readonly BUTTONS_PER_ROW = 3;
+
+    // A marked button keeps its mark in its own callback data: the keyboard of the question is the
+    // only record of what the presses have done (docs/product/cjm.md, step 4).
+    private static readonly MARKED_CALLBACK_DATA_PREFIXES: Record<FormatMark, string> = {
+        [FormatMark.Sent]: "sent:",
+        [FormatMark.Failed]: "failed:",
+    };
+
+    private static readonly MARK_SYMBOLS: Record<FormatMark, string> = {
+        [FormatMark.Sent]: "✓",
+        [FormatMark.Failed]: "✗",
+    };
 
     public constructor(@inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats) {}
 
@@ -30,5 +45,100 @@ export class FormatButtons {
         }
 
         return keyboard.row().text(ctx.t("format-buttons-all-formats"), FormatButtons.CALLBACK_DATA_PREFIX + FormatButtons.ALL_FORMATS);
+    }
+
+    // undefined for the data of any other button, an unmarked one included.
+    public findMarkedPress(callbackData: string): MarkedPress | undefined {
+        for (const mark of Object.values(FormatMark)) {
+            const prefix = FormatButtons.MARKED_CALLBACK_DATA_PREFIXES[mark];
+
+            if (!callbackData.startsWith(prefix)) {
+                continue;
+            }
+
+            const targetExtension = this.toExtension(callbackData.slice(prefix.length));
+
+            if (targetExtension === undefined) {
+                return undefined;
+            }
+
+            return { mark: mark, targetExtension: targetExtension };
+        }
+
+        return undefined;
+    }
+
+    // The keyboard with the buttons of the formats in `marks` marked, or undefined when no button
+    // changes: Telegram refuses an edit that changes nothing with a 400.
+    public mark(keyboard: InlineKeyboardMarkup, marks: ReadonlyMap<Extension, FormatMark>): InlineKeyboardMarkup | undefined {
+        const markedRows: InlineKeyboardButton[][] = [];
+        let isChanged = false;
+
+        for (const row of keyboard.inline_keyboard) {
+            const markedRow: InlineKeyboardButton[] = [];
+
+            for (const button of row) {
+                const markedButton = this.markButton(button, marks);
+
+                if (markedButton !== button) {
+                    isChanged = true;
+                }
+
+                markedRow.push(markedButton);
+            }
+
+            markedRows.push(markedRow);
+        }
+
+        if (!isChanged) {
+            return undefined;
+        }
+
+        return { inline_keyboard: markedRows };
+    }
+
+    // The button itself when it keeps its look: "all formats", a format with no mark, a format
+    // marked so already.
+    private markButton(button: InlineKeyboardButton, marks: ReadonlyMap<Extension, FormatMark>): InlineKeyboardButton {
+        if (!("callback_data" in button)) {
+            return button;
+        }
+
+        const targetExtension = this.findTarget(button.callback_data);
+
+        if (targetExtension === undefined) {
+            return button;
+        }
+
+        const mark = marks.get(targetExtension);
+
+        if (mark === undefined) {
+            return button;
+        }
+
+        const markedCallbackData = FormatButtons.MARKED_CALLBACK_DATA_PREFIXES[mark] + targetExtension;
+
+        if (button.callback_data === markedCallbackData) {
+            return button;
+        }
+
+        return { text: `${FormatButtons.MARK_SYMBOLS[mark]} ${targetExtension.toUpperCase()}`, callback_data: markedCallbackData };
+    }
+
+    // The format of a button, marked or not; undefined for "all formats".
+    private findTarget(callbackData: string): Extension | undefined {
+        const prefixes = [FormatButtons.CALLBACK_DATA_PREFIX, ...Object.values(FormatButtons.MARKED_CALLBACK_DATA_PREFIXES)];
+
+        for (const prefix of prefixes) {
+            if (callbackData.startsWith(prefix)) {
+                return this.toExtension(callbackData.slice(prefix.length));
+            }
+        }
+
+        return undefined;
+    }
+
+    private toExtension(name: string): Extension | undefined {
+        return Object.values(Extension).find((extension) => extension === name);
     }
 }

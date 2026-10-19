@@ -100,7 +100,16 @@ albums, in the order of the buttons, a result left alone as a plain document.
 
 ## 4. Again
 
-The buttons stay under the question. Any of them works later too, the same format again included.
+The buttons stay under the question, and after a conversion they show what it has done: `✓ TTF`
+for a format sent, `✗ SVG` for one that failed, on our side or over {maxUploadSizeMb} MB. A repeat
+of either gives the same outcome. "Все форматы" marks every format by its own outcome and itself
+stays as it is: a press of it converts every format again.
+
+A marked button converts nothing: its press is answered with a toast over the chat, a row of the
+table of step 5. An unmarked one works later too. A quick double tap of the same button converts
+twice, since the second tap comes before the first one has marked the button: an extra file is
+accepted.
+
 When the bot can no longer get the source file, it answers the button with a request to send the
 file again.
 
@@ -118,6 +127,8 @@ file again.
 | "Все форматы", some conversions failed | Не получилось: {formats}. |
 | A result over {maxUploadSizeMb} MB, for one format and for "Все форматы" alike | Не получилось отправить {formats}: больше {maxUploadSizeMb} МБ — Telegram не даёт ботам отправлять такие файлы. |
 | A button whose source file the bot can no longer get | Этот файл больше недоступен — пришлите его ещё раз. |
+| A press of a button marked `✓`, as a toast (step 4) | {format} уже отправлен — он выше в чате. |
+| A press of a button marked `✗`, as a toast (step 4) | {format} из этого файла не получается — повтор даст то же самое. |
 | Any other failure: Telegram did not give the file, an error in the code | Что-то пошло не так. Попробуйте ещё раз чуть позже. Если не пройдёт — напишите автору: {contact}. |
 
 The last row goes out once, when the handling of the update has failed for good and blocked its
