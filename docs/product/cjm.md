@@ -9,7 +9,9 @@ The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
 written in the same PR as the Russian text. `{formats}` in a text is the list of supported formats
 substituted from `ConvertorFactory.getSupportedExtensions()` by `SupportedFormats`
-([`bot.md`](../architecture/bot.md), "Commands"). `{format}` is one format.
+([`bot.md`](../architecture/bot.md), "Commands"). The rows of step 5 for a message that is not a
+file and for an unsupported file list only the formats a file is taken in, those a pair starts from.
+`{format}` is one format.
 
 A format is written in upper case, in texts and on buttons alike: `TTF`, not `ttf`. Wherever the
 bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOFF2, EOT, SVG.
@@ -132,7 +134,8 @@ unsupported file with «Файл» in place of the quoted name: "Файл — н
 
 An SVG with no font in it, a drawing, gets the row of a file not in its format: the format is an
 SVG font. So does a font collection (TTC) named `.ttf` or `.otf`: it is sound, and the advice to
-download a damaged font again would not help it.
+download a damaged font again would not help it. A WOFF or a WOFF2 file of a collection gets the row
+of a broken file: it is in its format, and no row fits it (the owner's decision in PR #1012).
 
 When Telegram itself refuses to give a file for its size (the message reported no size, or a
 smaller one than the limit), the limit that refused it is unknown, and the row of a file over

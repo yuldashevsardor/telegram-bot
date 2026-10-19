@@ -19,7 +19,7 @@ describe("NotAFileMiddleware", function () {
     it("asks for a file in reply to a text", async function () {
         const { replies, isPassedOn } = await run({ text: "hello" });
 
-        expect(replies).to.deep.equal(["Пришлите шрифт файлом — TTF, OTF, WOFF, WOFF2, EOT, SVG."]);
+        expect(replies).to.deep.equal(["Пришлите шрифт файлом — TTF, OTF, WOFF, WOFF2, SVG."]);
         expect(isPassedOn).to.equal(false);
     });
 
@@ -43,7 +43,7 @@ describe("NotAFileMiddleware", function () {
     it("asks in the locale of the update", async function () {
         const { replies } = await run({ text: "hello" }, "en");
 
-        expect(replies).to.deep.equal(["Send the font as a file: TTF, OTF, WOFF, WOFF2, EOT, SVG."]);
+        expect(replies).to.deep.equal(["Send the font as a file: TTF, OTF, WOFF, WOFF2, SVG."]);
     });
 
     it("passes a document on without an answer", async function () {

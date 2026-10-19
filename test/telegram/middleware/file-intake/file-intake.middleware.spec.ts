@@ -165,7 +165,7 @@ describe("FileIntakeMiddleware", function () {
             const { replies, downloader } = await run(document({ file_name: fileName }));
 
             expect(replies).to.deep.equal([
-                `«${fileName}» — не шрифт или формат, который я не знаю. Поддерживаю: TTF, OTF, WOFF, WOFF2, EOT, SVG.`,
+                `«${fileName}» — не шрифт или формат, который я не знаю. Поддерживаю: TTF, OTF, WOFF, WOFF2, SVG.`,
             ]);
             expect(downloader.downloadedPaths).to.deep.equal([]);
         });
@@ -174,7 +174,7 @@ describe("FileIntakeMiddleware", function () {
     it("refuses a file without a name", async function () {
         const { replies } = await run(document({}));
 
-        expect(replies).to.deep.equal(["Файл — не шрифт или формат, который я не знаю. Поддерживаю: TTF, OTF, WOFF, WOFF2, EOT, SVG."]);
+        expect(replies).to.deep.equal(["Файл — не шрифт или формат, который я не знаю. Поддерживаю: TTF, OTF, WOFF, WOFF2, SVG."]);
     });
 
     it("tells a file whose content is not in the format of its extension", async function () {

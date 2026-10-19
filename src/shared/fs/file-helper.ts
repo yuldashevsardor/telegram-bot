@@ -4,9 +4,12 @@ import type { BigIntStats } from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { NS_PER_SECOND } from "app/shared/time";
+import { StringHelper } from "app/shared/string/string-helper";
 import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
 
 export class FileHelper {
+    private static readonly RANDOM_FILENAME_LENGTH_CHARS = 15;
+
     // F_OK and not R_OK: with R_OK an existing unreadable path would pass for a missing one. A check
     // of "the path is free" would then let a write over such a file through, and a check of
     // readability that follows a check of existence would never fire.
@@ -64,22 +67,24 @@ export class FileHelper {
         // dayjs counts months from 0, hence the +1
         const month = dateTime.month() + 1;
 
-        const pathWithYear = path.join(basePath, dateTime.year().toString());
-        if (!(await FileHelper.isExist(pathWithYear))) {
-            fsSync.mkdirSync(pathWithYear);
-        }
+        const pathWithDay = path.join(basePath, dateTime.year().toString(), month.toString(), dateTime.date().toString());
 
-        const pathWithMonth = path.join(pathWithYear, month.toString());
-        if (!fsSync.existsSync(pathWithMonth)) {
-            fsSync.mkdirSync(pathWithMonth);
-        }
-
-        const pathWithDay = path.join(pathWithMonth, dateTime.date().toString());
-        if (!fsSync.existsSync(pathWithDay)) {
-            fsSync.mkdirSync(pathWithDay);
-        }
+        // recursive and not a check of existence before each mkdir: two calls at once could both
+        // find a directory missing, and the second mkdir would fail with EEXIST.
+        await fs.mkdir(pathWithDay, { recursive: true });
 
         return pathWithDay;
+    }
+
+    /**
+     * Gives a path for a new file under `basePath`, in the directory of the date
+     * (`createDirectoriesByDate()`): a random name of lower-case characters with `extension`. The
+     * directories are created, the file is not.
+     */
+    public static async createDatedFilePath(basePath: string, extension: string): Promise<string> {
+        const filename = StringHelper.generateRandomString(FileHelper.RANDOM_FILENAME_LENGTH_CHARS).toLowerCase() + "." + extension;
+
+        return path.join(await FileHelper.createDirectoriesByDate(basePath), filename);
     }
 
     public static async read(path: string): Promise<Uint8Array> {

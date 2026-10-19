@@ -81,6 +81,24 @@ describe("TelegramFileDownloader", function () {
         expect(error).to.be.instanceOf(TelegramFileNotDownloaded).with.deep.property("payload", { fileId: FILE_ID, status: 502 });
     });
 
+    // The socket reset under an error status: the cancel of the unread body rejects with the failure
+    // of its stream, and the status still decides.
+    it("rejects a download the file server fails by its status when the unread body has failed", async function () {
+        answerGetFile(FILE_PATH);
+        const originalFetch = globalThis.fetch;
+        const failedBody = new ReadableStream({ start: (controller): void => controller.error(new TypeError("terminated")) });
+        globalThis.fetch = async (input, init): Promise<Response> =>
+            String(input).includes("/file/bot") ? new Response(failedBody, { status: 502 }) : originalFetch(input, init);
+
+        try {
+            const error = await downloader.download(api, FILE_ID, Extension.TTF).catch((caught: unknown) => caught);
+
+            expect(error).to.be.instanceOf(TelegramFileNotDownloaded).with.deep.property("payload", { fileId: FILE_ID, status: 502 });
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
     it("rejects a download whose connection fails, with the failure as the cause", async function () {
         // getFile is answered in place, and the root of the Api is a port nothing listens on.
         const unreachableApi = new Api(TOKEN, { apiRoot: "http://127.0.0.1:1" });

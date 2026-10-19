@@ -1,4 +1,3 @@
-import path from "path";
 import { constants as httpStatus } from "node:http2";
 import type { Api } from "grammy";
 import { GrammyError } from "grammy";
@@ -6,7 +5,6 @@ import type { File } from "@grammyjs/types";
 import { injectable } from "inversify";
 import { configValue } from "app/shared/config-value";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { StringHelper } from "app/shared/string/string-helper";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { Extension } from "app/font-convertor/font-convertor.types";
 import {
@@ -24,13 +22,16 @@ export class TelegramFileDownloader {
     private static readonly DEFAULT_API_ROOT = "https://api.telegram.org";
 
     // A download stuck on a dead connection would hold the update, and the inbox would keep
-    // extending its lease (docs/architecture/inbox.md, "The update processor").
+    // extending its lease (docs/architecture/inbox.md, "The update processor"). The timeout is
+    // longer than the stop waits for a handler: a stop during a slow download leaves the handler
+    // running, as any long one (docs/architecture/inbox.md, "The runner", stop()).
     private static readonly DOWNLOAD_TIMEOUT_MS = 60 * MS_PER_SECOND;
-    private static readonly FILENAME_LENGTH_CHARS = 15;
 
     // How the Bot API describes the refusals of getFile that are no bug: a file over its limit, and
     // a file it cannot give right now, "wrong file_id or the file is temporarily unavailable". A
-    // file id that comes with the message is never wrong.
+    // file id that comes with the message is wrong only after the token of the bot changed, and the
+    // one description leaves no way to tell it: such an update is retried through every attempt
+    // before its group blocks.
     private static readonly FILE_TOO_BIG_DESCRIPTION = "file is too big";
     private static readonly FILE_UNAVAILABLE_DESCRIPTION = "temporarily unavailable";
 
@@ -49,20 +50,22 @@ export class TelegramFileDownloader {
         }
 
         const fileBytes = await this.fetchBytes(api, fileId, telegramFile.file_path);
-        const filename = StringHelper.generateRandomString(TelegramFileDownloader.FILENAME_LENGTH_CHARS).toLowerCase() + "." + extension;
-        const downloadedFilePath = path.join(await FileHelper.createDirectoriesByDate(this.tempDir), filename);
+        const downloadedFilePath = await FileHelper.createDatedFilePath(this.tempDir, extension);
 
         try {
             await FileHelper.write(downloadedFilePath, fileBytes);
+
+            return downloadedFilePath;
         } catch (error) {
             // A write cut short, by a full disk say, leaves a part of the file behind. removeAfter()
-            // keeps the error of the write over one of the removal.
+            // keeps the error of the write over one of the removal and throws it, so the throw after
+            // it is not reached: it says to the compiler and the reader that the catch ends here.
             await FileHelper.removeAfter(downloadedFilePath, async () => {
                 throw error;
             });
-        }
 
-        return downloadedFilePath;
+            throw error;
+        }
     }
 
     private async getFile(api: Api, fileId: string): Promise<File> {
@@ -90,12 +93,23 @@ export class TelegramFileDownloader {
     }
 
     // A 5xx may pass on a retry, a 4xx would not. The status of a fetch response ends at 599.
-    private byStatus(fileId: string, status: number): TelegramFileNotDownloaded | TelegramFileRefused {
+    private errorByStatus(fileId: string, status: number): TelegramFileNotDownloaded | TelegramFileRefused {
         if (status >= httpStatus.HTTP_STATUS_INTERNAL_SERVER_ERROR) {
             return TelegramFileNotDownloaded.byStatus(fileId, status);
         }
 
         return TelegramFileRefused.byStatus(fileId, status);
+    }
+
+    // An unread body keeps its connection out of reuse. The cancel of a body whose stream has failed
+    // already, by a reset socket say, rejects with that failure, and it would displace the error of
+    // the status, which the inbox knows how to take.
+    private async cancelBody(response: Response): Promise<void> {
+        try {
+            await response.body?.cancel();
+        } catch {
+            // The connection is lost either way.
+        }
     }
 
     // The root and the token of the Api getFile went through, so that the path and the file come
@@ -112,10 +126,9 @@ export class TelegramFileDownloader {
         }
 
         if (!response.ok) {
-            // An unread body keeps its connection out of reuse.
-            await response.body?.cancel();
+            await this.cancelBody(response);
 
-            throw this.byStatus(fileId, response.status);
+            throw this.errorByStatus(fileId, response.status);
         }
 
         try {
