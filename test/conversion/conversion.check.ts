@@ -25,8 +25,8 @@ type FontFixture = { relativePath: string; extension: Extension };
 
 // The conversion check (docs/architecture/testing.md, "The conversion check"): every font fixture is
 // converted into every format the pair table takes it to through FontConvertor, with the real engine and
-// codec, the route the bot takes, and the facts of the result are compared with those of the source changed by the expected
-// differences of the fixture and pair.
+// codec, the route the bot takes, and the facts of the result are compared with those of the source
+// changed by the expected differences of the fixture and pair.
 describe("Conversion of the fixtures", function () {
     this.timeout(CASE_TIMEOUT_MS);
 

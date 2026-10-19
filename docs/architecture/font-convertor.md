@@ -131,15 +131,22 @@ wrote does. The answer of the validator names the result in `path` of its payloa
 
 The caps the WOFF and WOFF2 validators set on a source hold for a result too: 32 MiB of sfnt in a
 WOFF (`MAX_SFNT_SIZE_BYTES`), 30 MiB in a WOFF2 (`DECODER_BUFFER_SIZE_BYTES`). A valid result past
-them fails the conversion. It takes a source whose sfnt is that large: a TTF or an OTF over the
-caps with `BOT_MAX_DOWNLOAD_SIZE` raised past its default of 20 MB (its range has no upper bound,
-`ConfigValuesBuilder`), an MTX-compressed EOT, whose rebuilt sfnt has no cap of ours ("Known"), or
-a WOFF converted into WOFF2 at the default configuration: a WOFF source is held to 32 MiB of sfnt,
-so one under the download limit with an sfnt of 30–32 MiB passes the intake, and its WOFF2 result
-fails. This is accepted: the WOFF2 cap is the
-buffer of the decoder fontforge reads WOFF2 with, so fontforge could not read such a result back
-either, and caps of a result's own would be a second set of limits for a case no font of the corpus
-reaches.
+them fails the conversion. It takes a source whose sfnt is that large: a TTF or an OTF over the caps
+with `BOT_MAX_DOWNLOAD_SIZE` raised past its default of 20 MB (its range has no upper bound,
+`ConfigValuesBuilder`), an MTX-compressed EOT, whose rebuilt sfnt has no cap of ours ("Known"), or a
+WOFF converted into WOFF2 at the default configuration: a WOFF source is held to 32 MiB of sfnt, so
+one under the download limit with an sfnt of 30–32 MiB passes the intake, and its WOFF2 result
+fails. This is accepted: the WOFF2 cap is the buffer of the decoder fontforge reads WOFF2 with, so
+fontforge could not read such a result back either, and caps of a result's own would be a second set
+of limits for a case no font of the corpus reaches.
+
+The rules of the SVG validator hold for an SVG result too, so the price of its rule "a `glyph` or
+`missing-glyph` has no child elements" ("The SVG validator") grows. fontforge writes the glyph of a
+stroked font as a `g` around a `path` (`svg.c`, for a CFF font whose top DICT has PaintType 2), and
+the sfnt validator does not read PaintType, so such an OTF, or a WOFF, WOFF2 or EOT carrying it,
+passes the intake and then fails its conversion into SVG. This is accepted by the owner, as the
+price of the rule on input was: stroked CFF fonts are rare, no font of the corpus is one, and
+keeping the rule off for a result would give the validator a second set of rules.
 
 The intermediate sfnt of the two-step EOT pairs meets a validator too, but after the codec. On
 packing `EotPacker.pack()` reads it and puts it into the envelope unchanged, so the check of the
