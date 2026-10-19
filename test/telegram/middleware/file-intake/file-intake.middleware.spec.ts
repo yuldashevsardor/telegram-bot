@@ -12,7 +12,7 @@ import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
 import type { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
 import type { Locale } from "app/telegram/locale/locale.types";
 import type { HandlerRun } from "test/telegram/handler.helper";
-import { runHandler, supportedFormats } from "test/telegram/handler.helper";
+import { runHandler, supportedFormatsWithEotOnlyTarget } from "test/telegram/handler.helper";
 import { realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
 import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
@@ -82,8 +82,8 @@ describe("FileIntakeMiddleware", function () {
         fontValidatorResolver = realFontValidatorResolver(),
     ): FileIntakeMiddleware {
         return new FileIntakeMiddleware(
-            supportedFormats,
-            new FormatButtons(supportedFormats),
+            supportedFormatsWithEotOnlyTarget,
+            new FormatButtons(supportedFormatsWithEotOnlyTarget),
             downloader as unknown as TelegramFileDownloader,
             fontValidatorResolver,
             new FontRejectionClassifier(),

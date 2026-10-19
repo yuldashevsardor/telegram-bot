@@ -16,10 +16,8 @@ const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as U
 // The formats in the order of the customer journey.
 const ORDERED_EXTENSIONS = [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT, Extension.SVG];
 
-// The sources of the pair matrix: every format but EOT, which is only a target here. In the matrix
-// of today every format is a source, and the list of sources would equal the list of all formats:
-// with EOT left out a spec tells which of the two a reply took.
-const SOURCE_EXTENSIONS = ORDERED_EXTENSIONS.filter((extension) => extension !== Extension.EOT);
+// The sources of a pair matrix where EOT is only a target.
+const SOURCE_EXTENSIONS_WITHOUT_EOT: Extension[] = ORDERED_EXTENSIONS.filter((extension) => extension !== Extension.EOT);
 
 // What a handler passed to ctx.reply() besides the text: the keyboard, the message replied to.
 export type ReplyOptions = Parameters<Context["reply"]>[1];
@@ -28,13 +26,29 @@ export type ReplyContext = { ctx: Context; replies: string[]; replyOptions: Repl
 
 export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[]; isPassedOn: boolean };
 
-// The lists SupportedFormats gives for a pair matrix where every format but EOT converts into every
-// other, and EOT is only a target.
+// The lists SupportedFormats gives for the pair matrix of today, complete: every format converts
+// into every other.
 export const supportedFormats = {
     toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
-    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, SVG",
-    toSourceList: (): Extension[] => SOURCE_EXTENSIONS,
+    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
+    toSourceList: (): Extension[] => ORDERED_EXTENSIONS,
     toTargetList: (sourceExtension: Extension): Extension[] => ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension),
+} as SupportedFormats;
+
+// The lists for a pair matrix where EOT is only a target, for a spec of a text that lists the
+// sources: in the matrix of today the list of sources equals the list of all formats, and only a
+// list of its own tells which of the two a reply took.
+export const supportedFormatsWithEotOnlyTarget = {
+    toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
+    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, SVG",
+    toSourceList: (): Extension[] => SOURCE_EXTENSIONS_WITHOUT_EOT,
+    toTargetList: (sourceExtension: Extension): Extension[] => {
+        if (!SOURCE_EXTENSIONS_WITHOUT_EOT.includes(sourceExtension)) {
+            return [];
+        }
+
+        return ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension);
+    },
 } as SupportedFormats;
 
 // The help with a contact of its own and the size limit of the cloud Bot API.
