@@ -109,8 +109,7 @@ A marked button converts nothing: its press is answered with a toast over the ch
 table of step 5. An unmarked one works later too. A quick double tap of the same button converts
 twice, since the second tap comes before the first one has marked the button: an extra file is
 accepted. A press of another button made while a conversion runs comes before the marks too: when
-it is done, the buttons show its own outcome alone, the marks of the conversion before it are gone,
-and their buttons convert again.
+it is done, the marks of the conversion before it are gone, and their buttons convert again.
 
 When the bot can no longer get the source file, it answers the button with a request to send the
 file again.

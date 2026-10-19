@@ -9,7 +9,7 @@ import type { MarkedPress } from "app/telegram/format-buttons/format-buttons.typ
 import { FormatMark } from "app/telegram/format-buttons/format-buttons.types";
 
 // A format button as its callback data names it: the target, and the mark of a marked one.
-type FormatButtonData = { mark: FormatMark | undefined; targetExtension: Extension };
+type FormatButtonData = MarkedPress | { mark: undefined; targetExtension: Extension };
 
 // The buttons under the question about a file (docs/product/cjm.md, step 2): the target formats.
 @injectable()
@@ -23,7 +23,7 @@ export class FormatButtons {
 
     // A marked button keeps its mark in its own callback data: the keyboard of the question is the
     // only record of what the presses have done (docs/product/cjm.md, step 4).
-    private static readonly MARK_LOOKS: Record<FormatMark, { callbackDataPrefix: string; symbol: string }> = {
+    private static readonly MARK_BUTTONS: Record<FormatMark, { callbackDataPrefix: string; symbol: string }> = {
         [FormatMark.Sent]: { callbackDataPrefix: "sent:", symbol: "✓" },
         [FormatMark.Failed]: { callbackDataPrefix: "failed:", symbol: "✗" },
     };
@@ -53,7 +53,7 @@ export class FormatButtons {
             return undefined;
         }
 
-        return { mark: buttonData.mark, targetExtension: buttonData.targetExtension };
+        return buttonData;
     }
 
     // The keyboard with the buttons of the formats in `marks` marked, or undefined when no button
@@ -105,14 +105,14 @@ export class FormatButtons {
             return button;
         }
 
-        const markLook = FormatButtons.MARK_LOOKS[mark];
-        const markedCallbackData = markLook.callbackDataPrefix + targetExtension;
+        const { callbackDataPrefix, symbol } = FormatButtons.MARK_BUTTONS[mark];
+        const markedCallbackData = callbackDataPrefix + targetExtension;
 
         if (button.callback_data === markedCallbackData) {
             return button;
         }
 
-        return { text: `${markLook.symbol} ${targetExtension.toUpperCase()}`, callback_data: markedCallbackData };
+        return { text: `${symbol} ${targetExtension.toUpperCase()}`, callback_data: markedCallbackData };
     }
 
     // undefined for "all formats" and for data of no format button.
@@ -122,7 +122,7 @@ export class FormatButtons {
         }
 
         for (const mark of Object.values(FormatMark)) {
-            const prefix = FormatButtons.MARK_LOOKS[mark].callbackDataPrefix;
+            const prefix = FormatButtons.MARK_BUTTONS[mark].callbackDataPrefix;
 
             if (callbackData.startsWith(prefix)) {
                 return this.toButtonData(mark, callbackData.slice(prefix.length));

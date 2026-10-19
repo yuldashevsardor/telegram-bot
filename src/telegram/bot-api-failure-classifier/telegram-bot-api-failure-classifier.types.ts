@@ -4,7 +4,8 @@ export enum TelegramBotApiFailureKind {
     Transient = "transient",
     // A 429: Telegram asks to wait retryAfterSeconds before the next call.
     Flood = "flood",
-    // The chat cannot get the message at all: a retry would fail the same way.
+    // The call can never go through: the chat is out of reach, or the message an edit names cannot
+    // change. A retry would fail the same way.
     Undeliverable = "undeliverable",
     // A 413: the body of the request is over the limit of the Bot API. A retry of the same call gets
     // the same answer, while the chat still takes other messages.
