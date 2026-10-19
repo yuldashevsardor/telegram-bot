@@ -18,7 +18,7 @@ import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-fon
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
-import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
+import { InvalidPath, PermissionDenied, ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const datedWoffPath = /^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/;
@@ -168,6 +168,18 @@ describe("FontConvertor", function () {
 
         expect(error).to.be.instanceOf(FontConvertorError);
         expect((error as FontConvertorError).cause).to.be.instanceOf(NotSfnt);
+        expect(engineCalls).to.have.lengthOf(1);
+    });
+
+    it("rejects a conversion the engine wrote no file for", async function () {
+        writeEngineResult = async (): Promise<void> => {};
+
+        const error = await rejectionOf(() =>
+            new FontConvertor(factory, resolver, tempDir).convert({ originPath: fixture(Extension.OTF), extension: Extension.TTF }),
+        );
+
+        expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).cause).to.be.instanceOf(ReadFailed);
         expect(engineCalls).to.have.lengthOf(1);
     });
 

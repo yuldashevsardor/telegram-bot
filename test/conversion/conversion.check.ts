@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
+import { FontConvertor } from "app/font-convertor/font-convertor";
 import type { Extension } from "app/font-convertor/font-convertor.types";
 import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
@@ -23,8 +24,8 @@ const CASE_TIMEOUT_MS = 20 * 1000;
 type FontFixture = { relativePath: string; extension: Extension };
 
 // The conversion check (docs/architecture/testing.md, "The conversion check"): every font fixture is
-// converted into every format the pair table takes it to, with the real engine and codec, the route the
-// bot takes, and the facts of the result are compared with those of the source changed by the expected
+// converted into every format the pair table takes it to through FontConvertor, with the real engine and
+// codec, the route the bot takes, and the facts of the result are compared with those of the source changed by the expected
 // differences of the fixture and pair.
 describe("Conversion of the fixtures", function () {
     this.timeout(CASE_TIMEOUT_MS);
@@ -53,11 +54,10 @@ describe("Conversion of the fixtures", function () {
 
             it(`converts ${fixture.relativePath} to ${toExtension} changing only the expected facts`, async function () {
                 const sourcePath = path.join(fixtureDir, fixture.relativePath);
-                const resultPath = path.join(workDir, `result.${toExtension}`);
-
-                await factory.get(fixture.extension, toExtension).convert(sourcePath, resultPath);
-                // FontConvertor rejects a result its validator does not accept, so the bot would fail it.
-                await resolver.get(toExtension).validate(resultPath);
+                const resultPath = await new FontConvertor(factory, resolver, workDir).convert({
+                    originPath: sourcePath,
+                    extension: toExtension,
+                });
 
                 let expectedFacts = await reader.read(sourcePath, workDir);
 

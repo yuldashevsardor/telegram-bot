@@ -161,9 +161,9 @@ The specs that run the real engine check that a result is a valid file of its fo
 (`font-forge-convertor.spec.ts`), not that it is the same font. `make test-fonts` checks the latter
 (`test/conversion/conversion.check.ts`). Every font of `test/fixtures/fonts`, the Roboto fixtures at
 its root and the corpus of real fonts in a directory per font (its `README.md`), is converted into
-every format the pair table takes it to, through `ConvertorFactory` with the real `FontForge` and
-`EotPacker`, the route the bot takes. The result meets the validator of its format first, as
-`FontConvertor` checks it (`font-convertor.md`, "Checking the result"). Then the same facts are read
+every format the pair table takes it to, through `FontConvertor` and `ConvertorFactory` with the
+real `FontForge` and `EotPacker`, the route the bot takes, so the result meets the validator of its
+format first (`font-convertor.md`, "Checking the result"). Then the same facts are read
 from the source and the result and compared. The facts are the fields of `FontFacts`
 (`test/conversion/font-facts-reader.types.ts`); the encoded code points are the keys of its advance
 widths, and the number of glyphs encoded at a code point, `glyphsPerCodePoint`, is the length of

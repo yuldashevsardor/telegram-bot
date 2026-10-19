@@ -49,6 +49,7 @@ The call stands as the default of a constructor parameter, and the parameter nee
 ```ts
 public constructor(
     @inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory,
+    @inject<FontValidatorResolver>(Tokens.Font.Validator.Resolver) private readonly fontValidatorResolver: FontValidatorResolver,
     private readonly tempDir: string = configValue("tempDir"),
 ) {}
 ```
