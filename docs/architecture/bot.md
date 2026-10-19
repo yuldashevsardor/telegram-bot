@@ -241,13 +241,20 @@ session is the album `NotAFileMiddleware` answered last (below).
   buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows: the targets
   of the pairs of the source (`SupportedFormats.toTargetList()`). The reply
   sets `allow_sending_without_reply`: a document deleted during the check would otherwise fail the
-  reply with a 400, which blocks the chat in the outbox. The callback data of a button names the
-  target alone, `convert:<extension>` or `convert:all`: a file id does not fit the 64 bytes
-  Telegram allows, so the conversion finds the source through the message the question replies to
-  (below). The download serves the check alone, so a document that passes the name costs a
-  `getFile` and the download of the whole file.
-- `ConversionMiddleware` (`middleware/conversion/`) takes a press whose callback data starts with
-  `FormatButtons.CALLBACK_DATA_PREFIX` and passes any other update on. In this order:
+  reply with a 400, which blocks the chat in the outbox. The callback data of a button is
+  `${command}:${format}` (`FormatButtonCommand`, `FormatButtons.parse()`), here
+  `convert:<extension>` or `convert:all`. It names the target alone: a file id does not fit the 64
+  bytes Telegram allows, so the conversion finds the source through the message the question
+  replies to (below). The download serves the check alone, so a document that passes the name
+  costs a `getFile` and the download of the whole file.
+- `ConversionMiddleware` (`middleware/conversion/`) takes a press of a format button, marked or
+  not: callback data that `FormatButtons.parse()` takes. It passes any other update on. A marked
+  button, the command `sent` or `failed` (step 9), converts nothing: its press gets
+  `answerCallbackQuery` with a toast, `conversion-middleware-already-sent` or
+  `conversion-middleware-already-failed` ([`cjm.md`](../product/cjm.md), step 4), a late answer
+  taken as in step 1. A marked button whose format is no extension comes from no button of the bot:
+  it is logged as a `warning` and answered with no toast. A press of the command `convert` goes in
+  this order:
   1. `answerCallbackQuery`, at once, so the client stops its spinner. It names no chat and goes past
      the outbox. Telegram takes the answer for a short while only and refuses a late one with a 400
      "query is too old": a press handed out late by the inbox, behind the conversions of the same
@@ -289,9 +296,25 @@ session is the album `NotAFileMiddleware` answered last (below).
      their own after it, `conversion-middleware-too-large`. When every target failed, it is the
      whole answer. The replies set `allow_sending_without_reply`, as the question does, for a source
      deleted during the conversion.
+  9. `editMessageReplyMarkup` marks the buttons of the question by the outcome of each target
+     (`FormatButtons.mark()`): `✓` with the callback data `sent:<extension>` for a result sent, `✗`
+     with `failed:<extension>` for a target of step 5 or step 6. The marks live in the keyboard
+     alone, with no table behind them: a press brings the question with its `reply_markup`. That
+     keyboard is the one of the moment of the press, and an edit that changes nothing against it
+     is not made; a question without a keyboard is not edited. The second tap of a quick pair, or a
+     press the inbox handles again after its edit went out, still edits the question into what it
+     already shows, and Telegram refuses the edit with a 400 "message is not modified"; a question
+     the person deleted during the conversion gives a 400 "message to edit not found". Both are
+     `Undeliverable` ([`outbox.md`](./outbox.md), "Error classes"): the outbox fails the edit
+     without blocking the chat, and the middleware logs the refusal as an `info` and completes the
+     update, the results having gone out. Any other failure of the edit is thrown on to the inbox.
 
-  The buttons stay under the question: nothing removes or edits them, and every press converts
-  anew, from a fresh download.
+  An unmarked button, "Все форматы" included, converts anew on every press, from a fresh download.
+  The second tap of a quick pair comes with the keyboard from before the marks of the first one, so
+  it converts again: one extra file was taken over a key of the press kept in the database. A press
+  of another button made before the edit of an earlier one comes with that keyboard too: its own
+  edit drops the marks of the earlier press, and their buttons convert again. Nothing but the
+  keyboard records the marks, and the Bot API gives no way to read the question back.
 
 The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
 (`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in

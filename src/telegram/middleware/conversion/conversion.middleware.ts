@@ -15,6 +15,10 @@ import { Middleware } from "app/telegram/middleware/middleware";
 import type { Context } from "app/telegram/bot/bot.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
 import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
+import type { FormatButtonData, FormatMark } from "app/telegram/format-buttons/format-buttons.types";
+import { FormatButtonCommand } from "app/telegram/format-buttons/format-buttons.types";
+import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
 import { PathFile } from "app/telegram/path-file/path-file";
 import type { Logger } from "app/platform/logger/logger";
@@ -42,11 +46,19 @@ export class ConversionMiddleware extends Middleware {
     // Telegram limits the body of a request, not its files: the multipart headers, the media list and
     // the reply parameters come on top, a few hundred bytes a file. The margin covers them with room.
     private static readonly REQUEST_OVERHEAD_MARGIN_BYTES = 64 * 1024;
+    // The answer to a press of a marked button, which converts nothing.
+    private static readonly MARKED_PRESS_ANSWER_KEYS: Record<FormatMark, string> = {
+        [FormatButtonCommand.Sent]: "conversion-middleware-already-sent",
+        [FormatButtonCommand.Failed]: "conversion-middleware-already-failed",
+    };
 
     public constructor(
         @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
         @inject<TelegramFileDownloader>(Tokens.Bot.TelegramFileDownloader) private readonly fileDownloader: TelegramFileDownloader,
         @inject<FontConvertor>(Tokens.Font.Convertor.Convertor) private readonly fontConvertor: FontConvertor,
+        @inject<FormatButtons>(Tokens.Bot.FormatButtons) private readonly formatButtons: FormatButtons,
+        @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
+        private readonly failureClassifier: TelegramBotApiFailureClassifier,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly maxUploadSizeMb: number = configValue("bot.maxUploadSizeMb"),
     ) {
@@ -56,14 +68,26 @@ export class ConversionMiddleware extends Middleware {
     protected async handle(ctx: Context, next: NextFunction): Promise<void> {
         const callbackData = ctx.callbackQuery?.data;
 
-        if (callbackData === undefined || !callbackData.startsWith(FormatButtons.CALLBACK_DATA_PREFIX)) {
+        if (callbackData === undefined) {
             return next();
+        }
+
+        const buttonData = this.formatButtons.parse(callbackData);
+
+        if (buttonData === undefined) {
+            return next();
+        }
+
+        if (buttonData.command !== FormatButtonCommand.Convert) {
+            await this.answerMarkedPress(ctx, buttonData.command, buttonData);
+
+            return;
         }
 
         // At once, so that the client stops its spinner: the conversion takes seconds.
         await this.answerPress(ctx);
 
-        const targetName = callbackData.slice(FormatButtons.CALLBACK_DATA_PREFIX.length);
+        const targetName = buttonData.format;
         const source = this.findSource(ctx);
 
         if (source === undefined) {
@@ -96,11 +120,30 @@ export class ConversionMiddleware extends Middleware {
         await this.sendResults(ctx, sourceFilename, outcome.results, replyOptions);
         await this.replyFailed(ctx, conversion, outcome.failedExtensions, replyOptions);
         await this.replyTooLarge(ctx, outcome.tooLargeExtensions, replyOptions);
+        await this.markButtons(ctx, outcome);
     }
 
-    private async answerPress(ctx: Context): Promise<void> {
+    // A marked button converts nothing: a repeat would send the same file, or fail the same way.
+    private async answerMarkedPress(ctx: Context, mark: FormatMark, buttonData: FormatButtonData): Promise<void> {
+        const targetExtension = this.formatButtons.findTargetExtension(buttonData);
+
+        // The bot marks the buttons of formats alone: such data comes from no button of the bot.
+        if (targetExtension === undefined) {
+            this.logger.warning("The marked button names no format.", { callbackData: ctx.callbackQuery?.data });
+            await this.answerPress(ctx);
+
+            return;
+        }
+
+        const answerKey = ConversionMiddleware.MARKED_PRESS_ANSWER_KEYS[mark];
+
+        await this.answerPress(ctx, ctx.t(answerKey, { format: targetExtension.toUpperCase() }));
+    }
+
+    // toastText is shown to the person over the chat; without it the answer only stops the spinner.
+    private async answerPress(ctx: Context, toastText?: string): Promise<void> {
         try {
-            await ctx.answerCallbackQuery();
+            await ctx.answerCallbackQuery(toastText);
         } catch (error) {
             if (!this.isQueryTooOld(error)) {
                 throw error;
@@ -344,6 +387,53 @@ export class ConversionMiddleware extends Middleware {
         });
 
         await ctx.reply(replyText, replyOptions);
+    }
+
+    // The keyboard of the question shows what the press has done (docs/product/cjm.md, step 4). It is
+    // the keyboard of the moment of the press: the second press of a double tap, or a press the inbox
+    // handles again after its edit went out, makes an edit that changes nothing, which Telegram
+    // refuses.
+    private async markButtons(ctx: Context, outcome: Outcome): Promise<void> {
+        const question = ctx.callbackQuery?.message;
+
+        if (question === undefined || !("reply_markup" in question) || question.reply_markup === undefined) {
+            return;
+        }
+
+        const markedKeyboard = this.formatButtons.mark(question.reply_markup, this.toMarks(outcome));
+
+        if (markedKeyboard === undefined) {
+            return;
+        }
+
+        try {
+            await ctx.editMessageReplyMarkup({ reply_markup: markedKeyboard });
+        } catch (error) {
+            // Such a refusal, or a question the person deleted, failed the edit in the outbox without
+            // blocking the chat (docs/architecture/outbox.md, "Error classes"). The results have gone
+            // out by now; only the marks are lost.
+            if (this.failureClassifier.classify(error).kind !== TelegramBotApiFailureKind.Undeliverable) {
+                throw error;
+            }
+
+            this.logger.info("The buttons were not marked.", { cause: error });
+        }
+    }
+
+    // A result over the upload limit fails the same way on every repeat, as a conversion that failed
+    // on our side does.
+    private toMarks(outcome: Outcome): Map<Extension, FormatMark> {
+        const marks = new Map<Extension, FormatMark>();
+
+        for (const result of outcome.results) {
+            marks.set(result.targetExtension, FormatButtonCommand.Sent);
+        }
+
+        for (const failedExtension of [...outcome.failedExtensions, ...outcome.tooLargeExtensions]) {
+            marks.set(failedExtension, FormatButtonCommand.Failed);
+        }
+
+        return marks;
     }
 
     private toFormatList(extensions: Extension[]): string {

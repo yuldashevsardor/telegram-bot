@@ -161,6 +161,25 @@ describe("TelegramBotApiFailureClassifier", function () {
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Undeliverable });
     });
 
+    // A press handled again after its edit went out edits the question into what it shows already,
+    // and the person may delete the question during the conversion.
+    it("takes a 400 of an edit that cannot change its message for undeliverable", function () {
+        for (const description of [
+            "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message",
+            "Bad Request: message to edit not found",
+        ]) {
+            expect(classifier.classify(telegramError(400, description)), description).to.deep.equal({
+                kind: TelegramBotApiFailureKind.Undeliverable,
+            });
+        }
+    });
+
+    it("takes a message to edit not found under a code other than 400 for unexpected", function () {
+        expect(classifier.classify(telegramError(404, "Bad Request: message to edit not found"))).to.deep.equal({
+            kind: TelegramBotApiFailureKind.Unexpected,
+        });
+    });
+
     it("takes a 400 of a malformed call for unexpected", function () {
         expect(classifier.classify(telegramError(400, "Bad Request: message text is empty"))).to.deep.equal({
             kind: TelegramBotApiFailureKind.Unexpected,
