@@ -115,6 +115,17 @@ describe("FontForge.convert", function () {
         expect([...glyphs.keys()].filter((glyphName) => glyphName.startsWith("uniFBE8."))).to.be.empty;
     });
 
+    // The fixture's first sub-font holds the fullwidth Latin letters; A, あ, 中 and 한 lie in four others.
+    it("writes the glyphs of every sub-font of a CID-keyed font", async function () {
+        const distPath = path.join(workDir, "result.svg");
+
+        await fontForge.convert(path.join(fixtureDir, "noto-sans-cjk-sc", "NotoSansCJKsc-Regular-subset.otf"), distPath);
+
+        const glyphs = await glyphsByName(distPath);
+        const codePoints = [...glyphs.values()].map((glyph) => glyph["unicode"]);
+        expect(codePoints).to.include.members(["Ａ", "A", "あ", "中", "한"]);
+    });
+
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
     it("adds no glyph copies to a font of another format", async function () {
         const distPath = path.join(workDir, "result.otf");

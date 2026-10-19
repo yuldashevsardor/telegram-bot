@@ -6,8 +6,8 @@ the validators need real headers, not invented ones, and the pairs convert real 
 take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
 
 In the directories, a font each, the corpus of real fonts ("The corpus" below). Of the specs only
-`font-forge.spec.ts` takes some of its fonts, for the ligatures and Arabic forms Roboto does not
-have.
+`font-forge.spec.ts` takes some of its fonts, for the ligatures, the Arabic forms and the sub-fonts
+of a CID-keyed font Roboto does not have.
 
 The conversion check of `make test-fonts` (`test/conversion/conversion.check.ts`) takes every font
 of both: it converts each into every format the pair table takes it to and compares the facts of
@@ -110,18 +110,34 @@ depend on the network.
 | `bungee-spice/BungeeSpice-Regular.ttf` | [google/fonts](https://github.com/google/fonts/tree/2eb0b48d5f760f62e286216f0859a8c540dbc1bd/ofl/bungeespice), commit `2eb0b48d` | 2.000 | `ccf8e3f7eb1ac87ed217097332856f9007484362a00ae3b42a03c6ef851158d0` | a colour font: `COLR`, `CPAL` and `SVG ` |
 | `pacifico/Pacifico-latin.woff2` | Google Fonts, `https://fonts.gstatic.com/s/pacifico/v23/FwZY7-Qmy14u9lezJ-6H6MmBp0u-.woff2` | 3.001 | `1a47a54e53bbfd3cfb4673636eac5edc98a7ecbf36c41340f48086a4f4796b18` | a WOFF2 of Google's encoder, a subset that keeps glyphs it does not encode |
 | `inter/Inter[opsz,wght].ttf` | [google/fonts](https://github.com/google/fonts/tree/2eb0b48d5f760f62e286216f0859a8c540dbc1bd/ofl/inter), commit `2eb0b48d` | 4.001 | `29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031` | a variable font, axes `opsz` and `wght` |
+| `noto-sans-cjk-sc/NotoSansCJKsc-Regular-subset.otf` | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk/tree/Sans2.004/Sans/OTF/SimplifiedChinese), tag `Sans2.004`, a subset of `NotoSansCJKsc-Regular.otf` (below) | 2.004 | `7ddf9b562722b2bc8639c12035082979a07d9902a13b3d4847b1e68e72129e36` | a CID-keyed CFF: 31 glyphs in 9 sub-fonts, the first of them, `Alphabetic`, holding the fullwidth Latin letters |
 
 Font Awesome 4.7 ships no licence file: its `README.md` names the SIL OFL 1.1 for the font, and
 `font-awesome/OFL.txt` is the licence text with the copyright of the font's `name` table. The
 others carry the licence file of their source: `OFL.txt` of the directory in google/fonts, of the
-Noto zip, and `LICENSE.md` of the Source Sans repository at the tag, kept as `LICENSE.txt`: the
-width check of `make check` takes every `*.md` as prose. Pacifico's licence comes from
-`ofl/pacifico/OFL.txt` of google/fonts at the same commit as Bungee Spice and Inter.
+Noto zip, `LICENSE.md` of the Source Sans repository at the tag, kept as `LICENSE.txt`: the width
+check of `make check` takes every `*.md` as prose, and `LICENSE` of the noto-cjk repository at its
+tag, kept as `LICENSE.txt` too. Pacifico's licence comes from `ofl/pacifico/OFL.txt` of google/fonts
+at the same commit as Bungee Spice and Inter.
 
 The Pacifico file is the `latin` subset of what the CSS API serves to a current Chrome:
 `https://fonts.googleapis.com/css2?family=Pacifico` lists one WOFF2 per subset, and only for a
 browser it knows to read WOFF2. Noto Naskh Arabic is the unhinted build: hinting is not among the
 facts of the check, and the file is 159 KB against 247 KB of the hinted one.
+
+The Noto Sans CJK SC file is a subset: the whole font is 16 437 364 bytes and 65 535 glyphs,
+SHA-256 `2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b`. It is made with
+fontTools 4.60.2, which is not in the image, and a re-run gives the same bytes:
+
+```sh
+python3 -m fontTools.subset NotoSansCJKsc-Regular.otf --text='AaZz09 ＡＺａｚ あいアイ 中文字体 한글' \
+    --output-file=NotoSansCJKsc-Regular-subset.otf --name-IDs='*' --notdef-outline
+```
+
+The subsetter keeps the font CID-keyed and drops the sub-fonts no kept glyph belongs to: 9 of the 18
+are left. The text takes glyphs from several of them, the first one included, so a conversion that
+writes the first sub-font alone loses the rest (`docs/architecture/font-convertor.md`, "CID-keyed
+fonts").
 
 What fontforge does to the variable font the check does not see either. It keeps the default
 instance, Inter Regular (`wght` 400, `opsz` 14), and drops `fvar`, `gvar`, `avar`, `HVAR`, `MVAR`

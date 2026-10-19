@@ -21,9 +21,13 @@ export class FontForge {
     // sys.argv[3] is the file of its unencoded glyph indexes from SvgFontPreparer, one a line, whose
     // code points the script takes off (docs/architecture/font-convertor.md, "Reading SVG"). The file
     // is opened with io.open: under fontforge -c the bare open is fontforge.open, which reads a font.
+    // A CID-keyed font is flattened first: fontforge opens it with its first sub-font active and writes
+    // that sub-font alone (docs/architecture/font-convertor.md, "CID-keyed fonts").
     private readonly openFontAndUnencodeGlyphsScript = [
         "import fontforge, io, sys",
         "font = fontforge.open(sys.argv[1])",
+        "if font.is_cid:",
+        "    font.cidFlatten()",
         "if len(sys.argv) > 3:",
         "    with io.open(sys.argv[3]) as unencodedGlyphsFile:",
         "        unencodedGlyphIndexes = {int(line) for line in unencodedGlyphsFile}",

@@ -17,6 +17,7 @@ const NOTO_NASKH_ARABIC = "noto-naskh-arabic/NotoNaskhArabic-Regular.ttf";
 const BUNGEE_SPICE = "bungee-spice/BungeeSpice-Regular.ttf";
 const PACIFICO = "pacifico/Pacifico-latin.woff2";
 const INTER = "inter/Inter[opsz,wght].ttf";
+const NOTO_SANS_CJK_SC = "noto-sans-cjk-sc/NotoSansCJKsc-Regular-subset.otf";
 // Named by no entry: its conversions change no fact.
 const FONT_AWESOME_SVG = "font-awesome/fontawesome-webfont.svg";
 const NON_SVG_FIXTURES = [
@@ -28,6 +29,7 @@ const NON_SVG_FIXTURES = [
     BUNGEE_SPICE,
     PACIFICO,
     INTER,
+    NOTO_SANS_CJK_SC,
 ];
 
 // The share of the em fontforge gives the ascent of an SVG font whose ascent and descent it does not
@@ -153,7 +155,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "does not have. The pairs that come out with CFF outlines, svg to otf and to woff, gain nothing.",
     },
     {
-        fixtureRelativePaths: [FONT_AWESOME_OTF, SOURCE_SANS_3],
+        fixtureRelativePaths: [FONT_AWESOME_OTF, SOURCE_SANS_3, NOTO_SANS_CJK_SC],
         toExtensions: [Extension.TTF, Extension.EOT, Extension.WOFF2],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 2 }),
         reason:

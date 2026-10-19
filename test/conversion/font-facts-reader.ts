@@ -26,10 +26,14 @@ export class FontFactsReader {
     // holds it, platform 0 and platform 3 of one font, which would read as two glyphs. A code point
     // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps the
     // width of each of them, so a change of any one shows. The widths are sorted, since the glyph
-    // order differs between formats; two variants that swap their widths therefore pass unseen.
+    // order differs between formats; two variants that swap their widths therefore pass unseen. A
+    // CID-keyed font is flattened as FontForge.openFontAndUnencodeGlyphsScript flattens it: unflattened,
+    // font.glyphs() walks its first sub-font alone.
     private readonly readScript = [
         "import fontforge, io, json, sys",
         "font = fontforge.open(sys.argv[1])",
+        "if font.is_cid:",
+        "    font.cidFlatten()",
         "glyphs = list(font.glyphs())",
         "if len(sys.argv) > 2:",
         "    with io.open(sys.argv[2]) as unencodedGlyphsFile:",
